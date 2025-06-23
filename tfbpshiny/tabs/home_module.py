@@ -19,27 +19,29 @@ def home_ui():
             ui.tags.li(
                 ui.strong("Binding: "),
                 (
-                    "View TF binding profiles across multiple datasets "
-                    "using UpSet plots and correlation matrices."
+                    "View TF binding profiles in multiple datasets and "
+                    "compare the datasets to each other."
                 ),
             ),
             ui.tags.li(
                 ui.strong("Perturbation Response: "),
-                "Explore how TF knockouts or overexpression affect gene expression.",
-            ),
-            ui.tags.li(
-                ui.strong("All Regulator Comparisons: "),
                 (
-                    "See a global overview of rank response and "
-                    "DTO distributions across all regulators."
+                    "View transcriptional responses to TF perturbations "
+                    "(gene deletion, gene overexpression, and TF degradation) "
+                    "in multiple datasets and compare the datasets to each other."
                 ),
             ),
             ui.tags.li(
-                ui.strong("Individual Regulator Comparisons: "),
-                (
-                    "Zoom in on specific regulators to examine "
-                    "replicate-level perturbation effects."
+                ui.strong(
+                    "Compare binding datasets to perturbation response datasets: "
                 ),
+                ("This tab focuses on global statistics for many TFs."),
+            ),
+            ui.tags.li(
+                ui.strong(
+                    "Compare binding profiles to perturbation response profiles: "
+                ),
+                ("This tab focuses on individual TFs."),
             ),
         ),
         ui.h3("Getting Started"),

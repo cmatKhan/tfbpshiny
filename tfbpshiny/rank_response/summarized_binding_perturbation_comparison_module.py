@@ -10,34 +10,34 @@ from ..utils.rename_dataframe_data_sources import rename_dataframe_data_sources
 from ..utils.safe_percentage_format import safe_percentage_format
 from ..utils.safe_sci_notatation import safe_sci_notation
 
-# Replicate details table column metadata for selection
-RR_COLUMN_METADATA = {
-    "single_binding": (
-        "Single Binding",
-        "Unique ID for a single replicate; NA if composite.",
-    ),
-    "composite_binding": (
-        "Composite Binding",
-        "Unique ID for composite replicate; NA if single.",
-    ),
+# Summarized binding-perturbation comparison table column metadata for selection
+SUMMARIZED_BINDING_PERTURBATION_COLUMN_METADATA = {
     "expression_time": (
-        "Expression Time",
+        "Time Since Perturbation",
         "Time point of McIsaac overexpression assay.",
     ),
     "univariate_rsquared": (
-        "R²",
+        "Linear Model R²",
         "R² of model perturbed ~ binding.",
     ),
     "univariate_pvalue": (
-        "P-value",
+        "Linear Model P-value",
         "P-value of model perturbed ~ binding.",
     ),
+    "dto_empirical_pvalue": (
+        "DTO Empirical P-value",
+        "Empirical p-value from DTO.",
+    ),
+    "dto_fdr": (
+        "DTO Minimum FDR",
+        "False discovery rate from DTO.",
+    ),
     "binding_rank_threshold": (
-        "Binding Rank Threshold",
+        "DTO Rank Threshold (binding)",
         "binding rank with most significant DTO overlap.",
     ),
     "perturbation_rank_threshold": (
-        "Perturbation Rank Threshold",
+        "DTO Rank Threshold (perturbation)",
         "perturbation rank with most significant DTO overlap.",
     ),
     "binding_set_size": (
@@ -54,45 +54,52 @@ RR_COLUMN_METADATA = {
             "May be larger than rank due to ties."
         ),
     ),
-    "dto_fdr": (
-        "DTO FDR",
-        "False discovery rate from DTO.",
-    ),
-    "dto_empirical_pvalue": (
-        "DTO Empirical P-value",
-        "Empirical p-value from DTO.",
-    ),
     "rank_25": (
-        "Rank at 25",
+        "Percent responsive: Top 25 Binding Targets",
         "Responsive fraction in top 25 bound genes.",
     ),
-    "rank_50": (
-        "Rank at 50",
-        "Responsive fraction in top 50 bound genes.",
+}
+
+SUMMARIZED_BINDING_PERTURBATION_DATABASE_IDENTIFIER_COLUMN_METADATA = {
+    "single_binding": (
+        "Single binding",
+        "Number of single binding.",
+    ),
+    "composite_binding": (
+        "Composite binding",
+        "Number of composite binding.",
     ),
 }
 
 # Convert to dictionary: {value: HTML label}
-RR_CHOICES_DICT = {
-    key: ui.span(label, title=desc) for key, (label, desc) in RR_COLUMN_METADATA.items()
+SUMMARIZED_BINDING_PERTURBATION_CHOICES_DICT = {
+    key: ui.span(label, title=desc)
+    for key, (label, desc) in SUMMARIZED_BINDING_PERTURBATION_COLUMN_METADATA.items()
 }
 
-# Default selection for replicate details table
-DEFAULT_RR_COLUMNS = [
+SUMMARIZED_BINDING_PERTURBATION_DATABASE_IDENTIFIER_CHOICES_DICT = {
+    key: ui.span(label, title=desc)
+    for key, (
+        label,
+        desc,
+    ) in SUMMARIZED_BINDING_PERTURBATION_DATABASE_IDENTIFIER_COLUMN_METADATA.items()
+}
+
+# Default selection for summarized binding-perturbation comparison table
+DEFAULT_SUMMARIZED_BINDING_PERTURBATION_COLUMNS = [
     "univariate_rsquared",
-    "dto_fdr",
     "dto_empirical_pvalue",
     "rank_25",
 ]
 
 
 @module.ui
-def expression_source_table_ui():
-    return ui.output_data_frame("expression_source_table")
+def summarized_binding_perturbation_comparison_ui():
+    return ui.output_data_frame("summarized_binding_perturbation_comparison")
 
 
 @module.server
-def expression_source_table_server(
+def summarized_binding_perturbation_comparison_server(
     input: Inputs,
     output: Outputs,
     session: Session,
@@ -101,21 +108,24 @@ def expression_source_table_server(
     expression_source: str,
     selected_promotersetsigs: reactive.value,
     selected_columns: reactive.calc,
+    selected_database_identifier_columns: reactive.calc,
     logger: Logger,
 ) -> None:
     """
-    Server for expression source specific table.
+    Server for expression source specific summarized binding-perturbation comparison.
 
     :param rr_metadata: Complete rank response metadata
     :param expression_source: The specific expression source to filter for
     :param selected_promotersetsigs: Reactive value containing selected promotersetsigs
     :param selected_columns: Reactive calc containing selected columns to display
+    :param selected_database_identifier_columns: Reactive calc containing selected
+        database identifier columns to display
     :param logger: Logger object
 
     """
 
     @render.data_frame
-    def expression_source_table():
+    def summarized_binding_perturbation_comparison():
         req(rr_metadata)
         req(selected_columns)
 
@@ -129,10 +139,14 @@ def expression_source_table_server(
 
         # Get selected columns from the accordion
         selected_cols = selected_columns()  # type: ignore
+        selected_db_id_cols = selected_database_identifier_columns()  # type: ignore
+
+        # Combine both column groups
+        all_selected_cols = list(selected_cols) + list(selected_db_id_cols)
 
         # Always include promotersetsig (needed for highlighting logic)
         columns_to_show = ["promotersetsig"] + [
-            col for col in selected_cols if col != "promotersetsig"
+            col for col in all_selected_cols if col != "promotersetsig"
         ]
 
         # Filter to only show columns that exist in the dataframe and are selected
@@ -174,8 +188,14 @@ def expression_source_table_server(
                 existing_percentage_cols
             ].applymap(safe_percentage_format)
 
+        # Combine both metadata dictionaries for column naming
+        COMBINED_COLUMN_METADATA = {
+            **SUMMARIZED_BINDING_PERTURBATION_COLUMN_METADATA,
+            **SUMMARIZED_BINDING_PERTURBATION_DATABASE_IDENTIFIER_COLUMN_METADATA,
+        }
+
         # Apply friendly column names from metadata
-        df_local = apply_column_names(df_local, RR_COLUMN_METADATA)
+        df_local = apply_column_names(df_local, COMBINED_COLUMN_METADATA)
 
         df_local.reset_index(drop=True, inplace=True)
 

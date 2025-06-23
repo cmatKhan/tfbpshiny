@@ -10,6 +10,12 @@ from tfbpshiny.utils.source_name_lookup import get_source_name_dict
 
 logger = logging.getLogger("shiny")
 
+# Global dictionary for responsiveness definitions by expression source
+RESPONSIVENESS_DEFINITIONS = {
+    "kemmeren_tfko": "p-value < 0.05",
+    "mcisaac_oe": "|log2fc| > 0",
+}
+
 
 def parse_binomtest_results(binomtest_obj: BinomTestResult, **kwargs):
     """
@@ -193,11 +199,13 @@ def prepare_rank_response_data(rr_dict: dict) -> dict:
 
         expression_id = str(row["expression"])
         promotersetsig_id = str(row["promotersetsig"])
+        expression_source = str(row["expression_source"])
 
         plot_data = process_plot_data(data)
         plot_data["datasource"] = source_name_dict.get(
             row["binding_source"], row["binding_source"]
         )
+        plot_data["expression_source"] = expression_source
 
         plots.setdefault(expression_id, {}).update({promotersetsig_id: plot_data})
 
@@ -269,15 +277,34 @@ def create_rank_response_replicate_plot(plots_dict):
     for expression_id, promotersetsig_dict in plots_dict.items():
         fig = go.Figure()
         add_random = True
+        expression_source = None
+
         for promotersetsig_id, plot_data in promotersetsig_dict.items():
+            # Get expression_source from the first plot_data entry
+            if expression_source is None:
+                expression_source = plot_data.get("expression_source")
+
             # Use the helper function to add traces to the plot
             add_traces_to_plot(fig, promotersetsig_id, add_random, **plot_data)
             add_random = False  # Add random line only once
 
+        # Get responsiveness definition for subtitle
+        responsiveness_def = RESPONSIVENESS_DEFINITIONS.get(str(expression_source), "")
+
+        # Create title with subtitle if responsiveness definition exists
+        if responsiveness_def:
+            title_text = (
+                f"Rank Response for Expression ID {expression_id}<br>"
+                f"<span style='font-size:14px; color:gray;'>Responsiveness: "
+                f"{responsiveness_def}</span>"
+            )
+        else:
+            title_text = f"Rank Response for Expression ID {expression_id}"
+
         # Update the layout of the figure
         fig.update_layout(
             title={
-                "text": f"Rank Response for Expression ID {expression_id}",
+                "text": title_text,
                 "x": 0.5,
             },
             yaxis_title="# Responsive / # Genes",
@@ -286,6 +313,7 @@ def create_rank_response_replicate_plot(plots_dict):
             yaxis=dict(
                 tick0=0, dtick=0.1, range=[0, 1.0]
             ),  # Set y-axis ticks and range
+            margin=dict(t=80, b=50, l=60, r=30),  # Add more top margin for subtitle
         )
 
         output_dict[expression_id] = fig
