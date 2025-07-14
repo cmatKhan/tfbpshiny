@@ -15,6 +15,7 @@ class PerturbationSource(str, Enum):
     mcisaac_oe = "Overexpression"
     kemmeren_tfko = "2014 TFKO"
     hu_reimann_tfko = "2007 TFKO"
+    hahn_degron = "Degron"
 
 
 def get_source_name_dict(

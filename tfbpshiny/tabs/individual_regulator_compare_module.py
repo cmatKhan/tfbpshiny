@@ -3,6 +3,7 @@ from logging import Logger
 from shiny import Inputs, Outputs, Session, module, reactive, render, ui
 
 from ..rank_response.replicate_plot_module import (
+    rank_response_replicate_plot_degron_ui,
     rank_response_replicate_plot_overexpression_ui,
     rank_response_replicate_plot_server,
     rank_response_replicate_plot_tfko_ui,
@@ -198,6 +199,7 @@ def individual_regulator_compare_ui():
                                         rr_plot_panel(
                                             "Overexpression", "overexpression_plots"
                                         ),
+                                        rr_plot_panel("Degron", "degron_plots"),
                                     ],
                                     id="plot_tabs",
                                 ),
@@ -296,6 +298,12 @@ def individual_regulator_compare_ui():
                             "Overexpression",
                             summarized_binding_perturbation_comparison_ui(
                                 "overexpression_table"
+                            ),
+                        ),
+                        ui.nav_panel(
+                            "Degron",
+                            summarized_binding_perturbation_comparison_ui(
+                                "degron_table"
                             ),
                         ),
                         id="expression_source_tabs",
@@ -582,6 +590,16 @@ def individual_regulator_compare_server(
         logger=logger,
     )
 
+    summarized_binding_perturbation_comparison_server(
+        "degron_table",
+        rr_metadata=rr_metadata,
+        expression_source="hahn_degron",
+        selected_promotersetsigs=selected_promotersetsigs_reactive,
+        selected_columns=selected_summarized_binding_perturbation_columns_calc,
+        selected_database_identifier_columns=selected_database_identifier_columns_calc,
+        logger=logger,
+    )
+
     # Synchronize plot tabs and expression source table tabs
     @reactive.effect
     def _():
@@ -609,3 +627,8 @@ def individual_regulator_compare_server(
         return rank_response_replicate_plot_overexpression_ui(
             "rank_response_replicate_plot"
         )
+
+    @render.ui
+    def degron_plots():
+        # Return the plots filtered for degron source
+        return rank_response_replicate_plot_degron_ui("rank_response_replicate_plot")

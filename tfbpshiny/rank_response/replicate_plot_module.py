@@ -37,6 +37,11 @@ def rank_response_replicate_plot_overexpression_ui():
     return ui.output_ui("overexpression_expression_container")
 
 
+@module.ui
+def rank_response_replicate_plot_degron_ui():
+    return ui.output_ui("degron_expression_container")
+
+
 @module.server
 def rank_response_replicate_plot_server(
     input: Inputs,
@@ -78,7 +83,8 @@ def rank_response_replicate_plot_server(
                     "regulator_id": regulator,
                     "expression_conditions": (
                         "expression_source=kemmeren_tfko;"
-                        "expression_source=mcisaac_oe,time=15"
+                        "expression_source=mcisaac_oe,time=15;"
+                        "expression_source=hahn_degron"
                     ),
                 }
             )
@@ -218,6 +224,12 @@ def rank_response_replicate_plot_server(
     @render.ui
     def overexpression_expression_container():
         return prepare_source_ui("mcisaac_oe")
+
+    # Render UI for degron source
+    @output
+    @render.ui
+    def degron_expression_container():
+        return prepare_source_ui("hahn_degron")
 
     # Render plots dynamically
     @reactive.effect()
