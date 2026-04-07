@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import io
 from logging import Logger
 from typing import Any
 
@@ -11,8 +13,16 @@ import pandas as pd
 from labretriever import VirtualDB
 from shiny import module, reactive, render, ui
 
+from tfbpshiny import components
+from tfbpshiny.components import export_download_button
+from tfbpshiny.modules.select_datasets.export import (
+    ExportDataset,
+    build_export_tarball,
+    get_dataset_description,
+)
 from tfbpshiny.modules.select_datasets.queries import (
     FIELD_TYPE_OVERRIDES,
+    full_data_query,
     metadata_query,
     regulator_display_labels_query,
 )
@@ -55,9 +65,10 @@ def select_datasets_sidebar_server(
     session: Any,
     vdb: VirtualDB,
     logger: Logger,
+    active_module: reactive.Value[str] | None = None,
 ) -> tuple[
-    reactive.Value[list[str]],
-    reactive.Value[list[str]],
+    reactive.Calc_[list[str]],
+    reactive.Calc_[list[str]],
     reactive.Value[dict[str, Any]],
 ]:
     """
@@ -79,14 +90,32 @@ def select_datasets_sidebar_server(
         if tags.get("data_type") in ["binding", "perturbation"]:
             dataset_dict[db_name] = tags
 
-    # list of (db_name, display_name) tuples for the binding and perturbation sections
-    binding_datasets: list[tuple[str, str]] = [
-        (db_name, tags.get("display_name", db_name))
+    # Build description lookup from DataCard configs (via VirtualDB internals).
+    # TODO: replace with a public VirtualDB method when one is available.
+    descriptions: dict[str, str] = {}
+    for db_name in dataset_dict:
+        try:
+            repo_id, config_name = vdb._db_name_map[db_name]
+            card = vdb._datacards.get(repo_id)
+            if card:
+                cfg = card.get_config(config_name)
+                if cfg and cfg.description:
+                    descriptions[db_name] = cfg.description
+        except (AttributeError, KeyError):
+            logger.warning(
+                f"Failed to fetch description for {db_name} from VirtualDB "
+                "datacard config"
+            )
+            descriptions[db_name] = "No description available."
+
+    # list of (db_name, display_name, description) tuples
+    binding_datasets: list[tuple[str, str, str]] = [
+        (db_name, tags.get("display_name", db_name), descriptions.get(db_name, ""))
         for db_name, tags in dataset_dict.items()
         if tags.get("data_type") == "binding"
     ]
-    perturbation_datasets: list[tuple[str, str]] = [
-        (db_name, tags.get("display_name", db_name))
+    perturbation_datasets: list[tuple[str, str, str]] = [
+        (db_name, tags.get("display_name", db_name), descriptions.get(db_name, ""))
         for db_name, tags in dataset_dict.items()
         if tags.get("data_type") == "perturbation"
     ]
@@ -105,14 +134,37 @@ def select_datasets_sidebar_server(
     # stores the DataFrame fetched when a filter modal is opened
     modal_df: reactive.Value[pd.DataFrame | None] = reactive.value(None)
 
-    # Persistent selection state — survives UI re-renders across navigation
-    _active_binding_datasets: reactive.Value[list[str]] = reactive.value([])
-    _active_perturbation_datasets: reactive.Value[list[str]] = reactive.value([])
-    # Per-dataset toggle state — persists so toggles restore correctly on re-render
+    # Per-dataset toggle state — persists so toggles restore correctly on re-render.
+    # Keys are fixed at init time and match dataset_dict keys exactly.
     _toggle_state: dict[str, reactive.Value[bool]] = {
         db_name: reactive.value(False)
-        for db_name, _ in binding_datasets + perturbation_datasets
+        for db_name, _, _ in binding_datasets + perturbation_datasets
     }
+
+    # Active dataset lists derived from toggle state. Using @reactive.calc
+    # instead of manually maintained reactive.Value eliminates redundant writes
+    # and lets Shiny coalesce rapid toggle changes within a single flush cycle.
+    @reactive.calc
+    def _active_binding_datasets() -> list[str]:
+        """
+        Binding datasets currently toggled on.
+
+        :trigger: ``_toggle_state[db]`` for each binding dataset — re-runs
+            whenever any binding toggle changes.
+
+        """
+        return [db for db, _, _ in binding_datasets if _toggle_state[db]()]
+
+    @reactive.calc
+    def _active_perturbation_datasets() -> list[str]:
+        """
+        Perturbation datasets currently toggled on.
+
+        :trigger: ``_toggle_state[db]`` for each perturbation dataset — re-runs
+            whenever any perturbation toggle changes.
+
+        """
+        return [db for db, _, _ in perturbation_datasets if _toggle_state[db]()]
 
     @reactive.effect
     @reactive.event(input.toggle_sidebar)
@@ -126,13 +178,17 @@ def select_datasets_sidebar_server(
         """
         collapsed.set(not collapsed())
 
-    def _make_toggle_effect(db_name: str, data_type: str) -> None:
+    def _make_toggle_effect(db_name: str) -> None:
         @reactive.effect
         @reactive.event(input[_toggle_id(db_name)])
         def _on_toggle() -> None:
             """
-            Update persistent toggle state and active-dataset list when a dataset switch
-            is changed.
+            Update persistent toggle state when a dataset switch is changed.
+
+            The active-dataset lists are derived via ``@reactive.calc`` from
+            ``_toggle_state``, so only a single write is needed here.  The
+            guard avoids redundant ``.set()`` calls (e.g. when
+            ``ui.update_switch`` echoes back the same value).
 
             :trigger input[_toggle_id(db_name)]: fires when the user flips the switch
             for this specific dataset.
@@ -140,28 +196,17 @@ def select_datasets_sidebar_server(
             """
             try:
                 val = bool(input[_toggle_id(db_name)]())
-            except Exception:
+            except (KeyError, AttributeError):
                 return
+            with reactive.isolate():
+                if _toggle_state[db_name]() == val:
+                    return
             _toggle_state[db_name].set(val)
-            if data_type == "binding":
-                current = list(_active_binding_datasets())
-                if val and db_name not in current:
-                    current.append(db_name)
-                elif not val and db_name in current:
-                    current.remove(db_name)
-                _active_binding_datasets.set(current)
-            else:
-                current = list(_active_perturbation_datasets())
-                if val and db_name not in current:
-                    current.append(db_name)
-                elif not val and db_name in current:
-                    current.remove(db_name)
-                _active_perturbation_datasets.set(current)
 
-    for db_name, tags in dataset_dict.items():
-        _make_toggle_effect(db_name, tags.get("data_type", ""))
+    for db_name, _, _ in binding_datasets + perturbation_datasets:
+        _make_toggle_effect(db_name)
 
-    for _db_name, _ in binding_datasets + perturbation_datasets:
+    for _db_name, _, _ in binding_datasets + perturbation_datasets:
 
         def _make_filter_effect(db_name: str) -> None:
             @reactive.effect
@@ -261,7 +306,7 @@ def select_datasets_sidebar_server(
         db_name = modal_open_for()
         if db_name is not None:
             current = dict(dataset_filters())
-            all_db_names = [d for d, _ in binding_datasets + perturbation_datasets]
+            all_db_names = [d for d, _, _ in binding_datasets + perturbation_datasets]
             # clear common-field filters from every dataset
             for ds in all_db_names:
                 if ds in current:
@@ -275,7 +320,11 @@ def select_datasets_sidebar_server(
             # clear dataset-specific filters for the open dataset
             current.pop(db_name, None)
             dataset_filters.set(current)
-        logger.debug(f"dataset_filters reset for {db_name}: {current}")
+            logger.debug(
+                "dataset_filters reset for %s: %d datasets with active filters",
+                db_name,
+                len(current),
+            )
         ui.modal_remove()
         modal_open_for.set(None)
         modal_df.set(None)
@@ -294,7 +343,7 @@ def select_datasets_sidebar_server(
         db_name = modal_open_for()
         if db_name is None:
             return
-        all_db_names = [d for d, _ in binding_datasets + perturbation_datasets]
+        all_db_names = [d for d, _, _ in binding_datasets + perturbation_datasets]
         current = dict(dataset_filters())
         for ds in all_db_names:
             ds_filters = dict(current.get(ds, {}))
@@ -413,7 +462,7 @@ def select_datasets_sidebar_server(
         }
 
         current = dict(dataset_filters())
-        all_db_names = [d for d, _ in binding_datasets + perturbation_datasets]
+        all_db_names = [d for d, _, _ in binding_datasets + perturbation_datasets]
 
         # apply regulator filter (or clear it if empty)
         if reg_filter:
@@ -494,24 +543,113 @@ def select_datasets_sidebar_server(
             current.pop(db_name, None)
 
         dataset_filters.set(current)
-        logger.debug(f"dataset_filters applied for {db_name}: {current}")
+        logger.debug(
+            "dataset_filters applied for %s: %d fields set",
+            db_name,
+            len(ds_filters),
+        )
 
-        # activate the dataset if it isn't already on
+        # activate the dataset if it isn't already on — the @reactive.calc
+        # will automatically include it in the active list.
+        # _toggle_state is set first; ui.update_switch syncs the DOM.
+        # _on_toggle will fire from the DOM update but the isolate() guard
+        # prevents a redundant set() call.
         if not _toggle_state[db_name]():
             _toggle_state[db_name].set(True)
-            current_b = list(_active_binding_datasets())
-            current_p = list(_active_perturbation_datasets())
-            if db_name in [d for d, _ in binding_datasets] and db_name not in current_b:
-                _active_binding_datasets.set(current_b + [db_name])
-            elif (
-                db_name in [d for d, _ in perturbation_datasets]
-                and db_name not in current_p
-            ):
-                _active_perturbation_datasets.set(current_p + [db_name])
+            ui.update_switch(_toggle_id(db_name), value=True)
 
         ui.modal_remove()
         modal_open_for.set(None)
         modal_df.set(None)
+
+    @render.download(
+        filename=lambda: "tfbpshiny_export.tar.gz",
+        media_type="application/gzip",
+    )
+    async def export_datasets():
+        """
+        Build and stream a .tar.gz archive of all active datasets.
+
+        The tarball is built in a worker thread via ``asyncio.to_thread`` so
+        the Shiny event loop stays responsive.  A ``ui.Progress`` bar shows
+        live per-dataset progress via an ``asyncio.Queue`` bridged from the
+        worker thread with ``call_soon_threadsafe``.
+
+        :trigger: ``input.export_datasets`` — fires when the user clicks the
+            Export Selected Datasets download button.
+
+        """
+        all_active = _active_binding_datasets() + _active_perturbation_datasets()
+        if not all_active:
+            return
+
+        filters = dataset_filters()
+        n = len(all_active)
+
+        # Build ExportDataset specs (SQL + params, not DataFrames)
+        export_list: list[ExportDataset] = []
+        for db_name in all_active:
+            ds_filters = filters.get(db_name)
+            display_name = dataset_dict[db_name].get("display_name", db_name)
+
+            meta_sql, meta_params = metadata_query(db_name, ds_filters)
+            data_sql, data_params = full_data_query(db_name, ds_filters)
+            description = get_dataset_description(vdb, db_name)
+
+            export_list.append(
+                ExportDataset(
+                    display_name=display_name,
+                    metadata_sql=meta_sql,
+                    metadata_params=meta_params,
+                    data_sql=data_sql,
+                    data_params=data_params,
+                    description=description,
+                )
+            )
+
+        # asyncio.Queue bridged from the worker thread for live progress.
+        # A None sentinel signals that the build is complete.
+        progress_q: asyncio.Queue[str | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def _on_dataset_done(name: str) -> None:
+            loop.call_soon_threadsafe(progress_q.put_nowait, name)
+
+        def _build_and_signal() -> io.BytesIO:
+            try:
+                return build_export_tarball(export_list, vdb, _on_dataset_done)
+            finally:
+                loop.call_soon_threadsafe(progress_q.put_nowait, None)
+
+        with ui.Progress(min=0, max=n, session=session) as progress:
+            progress.set(0, message="Preparing export...")
+
+            build_task = asyncio.create_task(asyncio.to_thread(_build_and_signal))
+
+            # Consume progress items until the sentinel arrives
+            done = 0
+            while True:
+                name = await progress_q.get()
+                if name is None:
+                    break
+                done += 1
+                progress.set(
+                    done,
+                    message=f"Packaged {name}",
+                    detail=f"{done} of {n}",
+                )
+
+            try:
+                buf = await build_task
+            except Exception:
+                logger.exception("Export tarball build failed")
+                return
+
+            progress.set(n, message="Download ready")
+
+        # Yield chunks from the in-memory buffer
+        while chunk := buf.read(65536):
+            yield chunk
 
     @render.ui
     def sidebar_panel() -> ui.Tag:
@@ -523,9 +661,25 @@ def select_datasets_sidebar_server(
         (e.g. on navigation back to this page) reflect the current selection.
 
         :trigger collapsed: re-renders when the sidebar is collapsed or expanded.
-        :trigger _toggle_state[*]: re-renders when any dataset's persistent
-            toggle state changes (i.e. after ``_on_toggle`` fires).
+        :trigger input.search: re-renders when the search input changes.
+
+        Toggle state is read with ``reactive.isolate()`` so that toggling a
+        dataset does NOT trigger a full sidebar re-render.  The
+        ``ui.input_switch`` widget manages its own client-side state after
+        initial render; programmatic state changes are synced via
+        ``ui.update_switch`` in a separate effect.
+
+        :trigger active_module: re-renders on page navigation so that
+            toggle values are refreshed from ``_toggle_state`` when the
+            user returns to the Select Datasets page.
         """
+        # Read active_module to invalidate on navigation; the sidebar only
+        # renders when active_module == "selection", but we re-compute on
+        # every navigation change so toggle values are always fresh when the
+        # user returns to this page.  Re-renders while the output element is
+        # absent are deferred by Shiny until the element reappears.
+        if active_module is not None:
+            active_module()
         is_collapsed = collapsed()
 
         search_term = ""
@@ -535,18 +689,25 @@ def select_datasets_sidebar_server(
             except Exception:
                 pass
 
-        def _dataset_row(db_name: str, label: str) -> ui.Tag:
-            current_val = _toggle_state[db_name]()
+        def _dataset_row(db_name: str, label: str, description: str) -> ui.Tag:
+            # isolate: read current value without creating a reactive dependency
+            with reactive.isolate():
+                current_val = _toggle_state[db_name]()
             if is_collapsed:
                 return ui.div(
                     {"class": "dataset-row"},
                     ui.input_switch(_toggle_id(db_name), label=None, value=current_val),
                 )
+            label_span = ui.span({"class": "dataset-row-label sidebar-text"}, label)
+            if description:
+                label_span = components.tooltip(
+                    label_span, description, placement="right"
+                )
             return ui.div(
                 {"class": "dataset-row"},
                 ui.input_switch(
                     _toggle_id(db_name),
-                    label=ui.span({"class": "dataset-row-label sidebar-text"}, label),
+                    label=label_span,
                     value=current_val,
                 ),
                 ui.input_action_button(
@@ -559,8 +720,8 @@ def select_datasets_sidebar_server(
         section_tags: list[ui.Tag] = []
 
         visible_binding = [
-            (db_name, label)
-            for db_name, label in binding_datasets
+            (db_name, label, desc)
+            for db_name, label, desc in binding_datasets
             if not search_term or search_term in label.lower()
         ]
         if visible_binding:
@@ -568,12 +729,12 @@ def select_datasets_sidebar_server(
                 section_tags.append(
                     ui.div({"class": "group-header sidebar-text"}, "Binding")
                 )
-            for db_name, label in visible_binding:
-                section_tags.append(_dataset_row(db_name, label))
+            for db_name, label, desc in visible_binding:
+                section_tags.append(_dataset_row(db_name, label, desc))
 
         visible_perturbation = [
-            (db_name, label)
-            for db_name, label in perturbation_datasets
+            (db_name, label, desc)
+            for db_name, label, desc in perturbation_datasets
             if not search_term or search_term in label.lower()
         ]
         if visible_perturbation:
@@ -581,8 +742,8 @@ def select_datasets_sidebar_server(
                 section_tags.append(
                     ui.div({"class": "group-header sidebar-text"}, "Perturbation")
                 )
-            for db_name, label in visible_perturbation:
-                section_tags.append(_dataset_row(db_name, label))
+            for db_name, label, desc in visible_perturbation:
+                section_tags.append(_dataset_row(db_name, label, desc))
 
         if not section_tags:
             section_tags.append(
@@ -626,7 +787,27 @@ def select_datasets_sidebar_server(
                 {"class": "sidebar-body"},
                 ui.div({"class": "dataset-list"}, *section_tags),
             ),
+            ui.output_ui("sidebar_footer"),
         )
+
+    @render.ui
+    def sidebar_footer() -> ui.TagChild:
+        """
+        Export button footer — rendered independently so it can react to active-dataset
+        changes without triggering a full sidebar re-render.
+
+        :trigger: ``_active_binding_datasets``, ``_active_perturbation_datasets``,
+            ``collapsed`` — re-renders when active datasets or collapse state change.
+
+        """
+        has_active = bool(_active_binding_datasets() or _active_perturbation_datasets())
+        is_collapsed = collapsed()
+        if has_active and not is_collapsed:
+            return ui.div(
+                {"class": "sidebar-footer"},
+                export_download_button("export_datasets"),
+            )
+        return None
 
     return _active_binding_datasets, _active_perturbation_datasets, dataset_filters
 

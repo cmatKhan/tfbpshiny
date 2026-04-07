@@ -35,10 +35,10 @@ def _filter_control(
 
     Returns ``None`` if the field type is not filterable or has no usable data.
 
-    Note: this function uses the ``filter-option-card`` CSS classes directly
-    rather than ``components.filter_option_card`` because it conditionally
-    injects an "Apply to all datasets" toggle into the card header — a variant
-    that the generic component does not support.
+    Note: this function uses Bootstrap card classes directly rather than
+    ``components.filter_option_card`` because it conditionally injects an
+    "Apply to all datasets" toggle into the card header — a variant that the
+    generic component does not support.
 
     :param is_common: When ``True``, appends an "Apply to all datasets" toggle
         inside the card. The toggle is pre-set from ``saved_spec["apply_to_all"]``
@@ -71,32 +71,46 @@ def _filter_control(
         )
         selected = saved_spec["value"] if saved_spec else []
         return ui.div(
-            {"class": "filter-option-card"},
+            {"class": "card"},
             ui.div(
-                {"class": "filter-option-header"},
-                ui.span({"class": "filter-option-title"}, field),
-                _apply_to_all_toggle() if is_common else ui.span(),
-            ),
-            ui.input_selectize(
-                f"filter_{_slugify(field)}",
-                label=None,
-                choices=choices,
-                selected=selected,
-                multiple=True,
-                options={"plugins": ["remove_button"]},
+                {"class": "card-body p-2"},
+                ui.div(
+                    {
+                        "class": "d-flex align-items-center "
+                        "justify-content-between gap-2 mb-2"
+                    },
+                    ui.span({"class": "fw-bold small"}, field),
+                    _apply_to_all_toggle() if is_common else ui.span(),
+                ),
+                ui.input_selectize(
+                    f"filter_{_slugify(field)}",
+                    label=None,
+                    choices=choices,
+                    selected=selected,
+                    multiple=True,
+                    options={"plugins": ["remove_button"]},
+                ),
             ),
         )
 
     if dtype == "bool":
         saved_val = bool(saved_spec["value"]) if saved_spec else False
         return ui.div(
-            {"class": "filter-option-card"},
+            {"class": "card"},
             ui.div(
-                {"class": "filter-option-header"},
-                ui.span({"class": "filter-option-title"}, field),
-                _apply_to_all_toggle() if is_common else ui.span(),
+                {"class": "card-body p-2"},
+                ui.div(
+                    {
+                        "class": "d-flex align-items-center "
+                        "justify-content-between gap-2 mb-2"
+                    },
+                    ui.span({"class": "fw-bold small"}, field),
+                    _apply_to_all_toggle() if is_common else ui.span(),
+                ),
+                ui.input_switch(
+                    f"filter_{_slugify(field)}", label=field, value=saved_val
+                ),
             ),
-            ui.input_switch(f"filter_{_slugify(field)}", label=field, value=saved_val),
         )
 
     if dtype.name in ("float64", "int64", "float32", "int32"):
@@ -110,18 +124,24 @@ def _filter_control(
         # TODO: fix typing issue and remove type: ignore
         saved_val = saved_spec["value"] if saved_spec else [data_min, data_max]  # type: ignore # noqa: E501
         return ui.div(
-            {"class": "filter-option-card"},
+            {"class": "card"},
             ui.div(
-                {"class": "filter-option-header"},
-                ui.span({"class": "filter-option-title"}, field),
-                _apply_to_all_toggle() if is_common else ui.span(),
-            ),
-            ui.input_slider(
-                f"filter_{_slugify(field)}",
-                label=None,
-                min=data_min,
-                max=data_max,
-                value=saved_val,
+                {"class": "card-body p-2"},
+                ui.div(
+                    {
+                        "class": "d-flex align-items-center "
+                        "justify-content-between gap-2 mb-2"
+                    },
+                    ui.span({"class": "fw-bold small"}, field),
+                    _apply_to_all_toggle() if is_common else ui.span(),
+                ),
+                ui.input_slider(
+                    f"filter_{_slugify(field)}",
+                    label=None,
+                    min=data_min,
+                    max=data_max,
+                    value=saved_val,
+                ),
             ),
         )
 
@@ -225,58 +245,69 @@ def dataset_filter_modal_ui(
             }
             regulator_card = [
                 ui.div(
-                    {"class": "filter-option-card"},
+                    {"class": "card"},
                     ui.div(
-                        {"class": "filter-option-header"},
-                        ui.span({"class": "filter-option-title"}, "Regulator"),
-                    ),
-                    ui.p(
-                        {
-                            "class": "text-muted",
-                            "style": "font-size:0.8rem; margin-bottom:6px;",
-                        },
-                        f"Regulators are limited to the {len(selected_reg):,} common "
-                        f"regulators between {from_pair[0]} and {from_pair[1]}. "
-                        "To clear this, deselect the highlighted cell in the matrix.",
-                    ),
-                    ui.input_selectize(
-                        "filter_regulator_locus_tag",
-                        label=None,
-                        choices=restricted_choices,
-                        selected=[],
-                        multiple=True,
-                        options={"plugins": ["remove_button"]},
+                        {"class": "card-body p-2"},
+                        ui.div(
+                            {
+                                "class": "d-flex align-items-center "
+                                "justify-content-between gap-2 mb-2"
+                            },
+                            ui.span({"class": "fw-bold small"}, "Regulator"),
+                        ),
+                        ui.p(
+                            {"class": "text-muted small mb-2"},
+                            "Regulators are limited to the "
+                            f"{len(selected_reg):,} common "
+                            f"regulators between {from_pair[0]} and {from_pair[1]}. "
+                            "To clear this, deselect the highlighted "
+                            "cell in the matrix.",
+                        ),
+                        ui.input_selectize(
+                            "filter_regulator_locus_tag",
+                            label=None,
+                            choices=restricted_choices,
+                            selected=[],
+                            multiple=True,
+                            options={"plugins": ["remove_button"]},
+                        ),
                     ),
                 )
             ]
         else:
             regulator_card = [
                 ui.div(
-                    {"class": "filter-option-card"},
+                    {"class": "card"},
                     ui.div(
-                        {"class": "filter-option-header"},
-                        ui.span({"class": "filter-option-title"}, "Regulator"),
+                        {"class": "card-body p-2"},
                         ui.div(
-                            {"style": "display:flex; align-items:center; gap:0.5rem;"},
-                            ui.input_action_button(
-                                "modal_clear_regulator_filter",
-                                "Clear",
-                                class_="btn btn-sm btn-outline-secondary",
-                            ),
-                            ui.input_switch(
-                                "apply_to_all_regulator_locus_tag",
-                                "Apply to all datasets",
-                                value=apply_to_all_reg,
+                            {
+                                "class": "d-flex align-items-center "
+                                "justify-content-between gap-2 mb-2"
+                            },
+                            ui.span({"class": "fw-bold small"}, "Regulator"),
+                            ui.div(
+                                {"class": "d-flex align-items-center gap-2"},
+                                ui.input_action_button(
+                                    "modal_clear_regulator_filter",
+                                    "Clear",
+                                    class_="btn btn-sm btn-outline-secondary",
+                                ),
+                                ui.input_switch(
+                                    "apply_to_all_regulator_locus_tag",
+                                    "Apply to all datasets",
+                                    value=apply_to_all_reg,
+                                ),
                             ),
                         ),
-                    ),
-                    ui.input_selectize(
-                        "filter_regulator_locus_tag",
-                        label=None,
-                        choices=regulator_display_labels,
-                        selected=selected_reg,
-                        multiple=True,
-                        options={"plugins": ["remove_button"]},
+                        ui.input_selectize(
+                            "filter_regulator_locus_tag",
+                            label=None,
+                            choices=regulator_display_labels,
+                            selected=selected_reg,
+                            multiple=True,
+                            options={"plugins": ["remove_button"]},
+                        ),
                     ),
                 )
             ]
@@ -327,8 +358,12 @@ def dataset_filter_modal_ui(
         ]
 
     body = ui.row(
-        ui.column(6, ui.div({"class": "modal-section"}, *common_col_children)),
-        ui.column(6, ui.div({"class": "modal-section"}, *specific_col_children)),
+        ui.column(
+            6, ui.div({"class": "d-flex flex-column gap-2"}, *common_col_children)
+        ),
+        ui.column(
+            6, ui.div({"class": "d-flex flex-column gap-2"}, *specific_col_children)
+        ),
     )
 
     return ui.modal(

@@ -79,7 +79,7 @@ app_ui = ui.page_fillable(
             ui.div(
                 {"class": "nav-tags"},
                 nav_button("home", "Home"),
-                nav_button("selection", "Select Datasets"),
+                nav_button("selection", "Dataset selection"),
                 nav_button("binding", "Binding"),
                 nav_button("perturbation", "Perturbation"),
                 nav_button("comparison", "Comparison"),
@@ -107,7 +107,10 @@ def app_server(input: Any, output: Any, session: Any) -> None:
     # Dataset selection state — shared across all analysis modules
     active_binding_datasets, active_perturbation_datasets, dataset_filters = (
         select_datasets_sidebar_server(
-            "select_datasets_sidebar", vdb=vdb, logger=logger
+            "select_datasets_sidebar",
+            vdb=vdb,
+            logger=logger,
+            active_module=active_module,
         )
     )
     select_datasets_workspace_server(
@@ -272,4 +275,8 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         return ui.span(ui.p("ERROR: No workspace for: " + selected_module))
 
 
-app = App(ui=app_ui, server=app_server)
+app = App(
+    ui=app_ui,
+    server=app_server,
+    static_assets=Path(__file__).parent / "www",
+)

@@ -34,20 +34,17 @@ CSS variable reference (from ``app.css`` ``:root``)
 --color-primary        #2C7A7B
 --color-primary-light  #E6FFFA
 --color-primary-dark   #1A5456
---color-accent         #38B2AC
---color-bg             #F7FAFC
---color-surface        #FFFFFF
 --color-border         #E2E8F0
 --color-text           #1A202C
---color-text-muted     #718096
---color-text-light     #A0AEC0
 --radius-sm            6px
 --radius-md            10px
---shadow-sm            0 1px 3px rgba(0,0,0,.08)
 --nav-height           52px
 --sidebar-width        380px
---sidebar-font-size    0.8125rem   (rescales all sidebar text at once)
+--font-size-label      0.875rem
 --transition-fast      150ms ease
+--color-nav            #722F37
+--color-nav-hover      #8B3A42
+--color-nav-active     #4A0E1A
 
 """
 
@@ -56,6 +53,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
 
+import faicons as fa
 from shiny import ui
 
 # ---------------------------------------------------------------------------
@@ -81,6 +79,38 @@ _GITHUB_SVG_PATH = (
     "0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 "
     "8c0-4.42-3.58-8-8-8z"
 )
+
+
+# ---------------------------------------------------------------------------
+# Tooltips
+# ---------------------------------------------------------------------------
+
+
+def tooltip(
+    trigger: ui.Tag,
+    text: str,
+    *,
+    placement: Literal["auto", "top", "right", "bottom", "left"] = "right",
+) -> ui.Tag:
+    """
+    Wrap a UI element with a Bootstrap tooltip shown on hover.
+
+    CSS: ``.tooltip-inner`` — overrides Bootstrap defaults to set
+    ``max-width: 300px`` and ``text-align: left``.
+
+    This is a simplified wrapper around ``ui.tooltip`` that exposes only
+    ``trigger``, ``text``, and ``placement``.  If you need ``id``,
+    ``options``, or extra tag attributes, extend this function rather than
+    bypassing it.
+
+    :param trigger: The element the user hovers over to reveal the tooltip.
+    :param text: Plain-text content displayed inside the tooltip bubble.
+    :param placement: Where the tooltip appears relative to the trigger.
+        Defaults to ``"right"`` (instead of Shiny's ``"auto"``) to suit
+        the sidebar layout where tooltips are most commonly used.
+
+    """
+    return ui.tooltip(trigger, text, placement=placement)
 
 
 # ---------------------------------------------------------------------------
@@ -344,19 +374,26 @@ def filter_option_card(title: str, *controls: ui.Tag) -> ui.Tag:
     """
     Bordered card containing a single filter control (slider, selectize, switch).
 
-    CSS: ``.filter-option-card``, ``.filter-option-header``, ``.filter-option-title``
+    Uses Bootstrap ``.card`` / ``.card-body`` for structure. The title is rendered
+    as bold text in a flex header row; controls appear below it.
 
     :param title: Field name shown in bold at the top of the card.
     :param controls: One or more Shiny input elements placed below the header.
 
     """
     return ui.div(
-        {"class": "filter-option-card"},
+        {"class": "card"},
         ui.div(
-            {"class": "filter-option-header"},
-            ui.span({"class": "filter-option-title"}, title),
+            {"class": "card-body p-2"},
+            ui.div(
+                {
+                    "class": "d-flex align-items-center "
+                    "justify-content-between gap-2 mb-2"
+                },
+                ui.span({"class": "fw-bold small"}, title),
+            ),
+            *controls,
         ),
-        *controls,
     )
 
 
@@ -364,10 +401,10 @@ def modal_section(*cards: ui.Tag) -> ui.Tag:
     """
     Vertical stack of ``filter_option_card`` elements inside a modal column.
 
-    CSS: ``.modal-section``
+    Uses Bootstrap ``d-flex flex-column gap-2``.
 
     """
-    return ui.div({"class": "modal-section"}, *cards)
+    return ui.div({"class": "d-flex flex-column gap-2"}, *cards)
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +526,26 @@ def matrix_table(header_row: ui.Tag, *body_rows: ui.Tag) -> ui.Tag:
     )
 
 
+def export_download_button(id: str) -> ui.Tag:
+    """
+    Full-width download button for exporting selected datasets as a tarball.
+
+    CSS: ``.btn-export-datasets``
+
+    :param id: Shiny download ID (paired with a ``@render.download`` handler).
+
+    """
+    return ui.download_button(
+        id,
+        "Export Selected Datasets",
+        icon=fa.icon_svg("download", width="14px", height="14px"),
+        class_="btn-export-datasets",
+    )
+
+
 __all__ = [
+    # tooltips
+    "tooltip",
     # layout
     "sidebar_shell",
     "workspace_shell",
@@ -520,4 +576,6 @@ __all__ = [
     "matrix_row_label",
     "matrix_cell",
     "matrix_table",
+    # export
+    "export_download_button",
 ]

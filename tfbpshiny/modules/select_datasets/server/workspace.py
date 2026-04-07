@@ -25,6 +25,7 @@ from tfbpshiny.modules.select_datasets.ui import (
     diagonal_cell_modal_ui,
     off_diagonal_cell_modal_ui,
 )
+from tfbpshiny.utils.ratelimit import debounce
 
 
 @module.server
@@ -32,8 +33,8 @@ def select_datasets_workspace_server(
     input: Any,
     output: Any,
     session: Any,
-    active_binding_datasets: reactive.calc,
-    active_perturbation_datasets: reactive.calc,
+    active_binding_datasets: reactive.Calc_[list[str]],
+    active_perturbation_datasets: reactive.Calc_[list[str]],
     dataset_filters: reactive.Value[dict[str, Any]],
     vdb: VirtualDB,
     logger: Logger,
@@ -45,13 +46,15 @@ def select_datasets_workspace_server(
         for db_name in vdb.get_datasets()
     }
 
+    @debounce(0.3)
     @reactive.calc
-    def _active_datasets() -> list[str]:
+    def _settled_datasets() -> list[str]:
         """
-        Combined list of all currently active binding and perturbation datasets.
+        Combined list of all active datasets, debounced to coalesce rapid toggle clicks.
 
         :trigger: ``active_binding_datasets``, ``active_perturbation_datasets`` —
-            re-runs whenever either list changes.
+            re-runs whenever either list changes, but downstream is only notified
+            after a specified quiet period.
         :returns: Concatenated list of active db_name strings, binding first.
 
         """
@@ -60,21 +63,19 @@ def select_datasets_workspace_server(
     @reactive.calc
     def _matrix_data() -> dict[str, Any]:
         """
-        Compute per-dataset regulator/sample counts and pairwise common-regulator counts
-        with restricted sample counts.
+        Compute per-dataset regulator/sample counts and pairwise common-regulator
+        counts.
 
-        :trigger: ``_active_datasets`` — re-runs when the active dataset list changes.
-            ``dataset_filters`` — re-runs when any filter changes, since filters
-            affect regulator and sample counts.
-        :returns: Dict with keys: ``"diagonal"`` — ``{db_name: {"regulators": int,
+        :trigger: ``_settled_datasets`` — re-runs after rapid toggle changes settle.
+            ``dataset_filters`` — re-runs when any filter changes.
+        :returns: Dict with keys ``"diagonal"`` — ``{db_name: {"regulators": int,
             "samples": int}}``; ``"cross_dataset"`` — ``{(db_i, db_j):
             {"common_regulators": int, "samples_a": int, "samples_b": int}}``.
 
         """
-        active = _active_datasets()
+        active = _settled_datasets()
         filters = dataset_filters()
 
-        # --- diagonal pass: regulator sets + sample counts per dataset ---
         regulator_sets: dict[str, set[str]] = {}
         diagonal: dict[str, dict[str, int]] = {}
 
@@ -91,7 +92,6 @@ def select_datasets_workspace_server(
 
             diagonal[db_name] = {"regulators": len(regulators), "samples": n_samples}
 
-        # --- off-diagonal pass: common regulators + restricted sample counts ---
         cross_dataset: dict[tuple[str, str], dict[str, int]] = {}
 
         for i, db_a in enumerate(active):
@@ -289,12 +289,12 @@ def select_datasets_workspace_server(
         Register click effects for any newly active dataset cells that have not yet been
         registered, avoiding duplicate effect registration.
 
-        :trigger: ``_active_datasets`` — re-runs whenever the active dataset list
-            changes so that new diagonal and off-diagonal cell effects are created
+        :trigger: ``_settled_datasets`` — re-runs whenever the active dataset list
+            settles so that new diagonal and off-diagonal cell effects are created
             for any newly added datasets.
 
         """
-        active = _active_datasets()
+        active = _settled_datasets()
         for db_name in active:
             if db_name not in _registered_effects:
                 _make_diagonal_effect(db_name)
@@ -325,7 +325,7 @@ def select_datasets_workspace_server(
 
     @render.ui
     def matrix_content() -> ui.Tag:
-        active = _active_datasets()
+        active = _settled_datasets()
 
         if not active:
             return ui.card(

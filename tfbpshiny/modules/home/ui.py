@@ -3,9 +3,68 @@
 from shiny import ui
 
 
+def _nav_link(label: str, target_id: str) -> ui.Tag:
+    """
+    Bold link that clicks a nav button to navigate to a page.
+
+    :param label: Display text for the link.
+    :param target_id: The Shiny input ID of the nav button to click.
+
+    """
+    return ui.a(
+        label,
+        href="#",
+        onclick=f"document.getElementById('{target_id}').click(); return false;",
+        style="font-weight: bold; color: var(--color-nav);",
+    )
+
+
+def _feature_card(
+    title: str,
+    target_id: str,
+    description: str,
+    *,
+    image: str | None = None,
+) -> ui.Tag:
+    """
+    Feature card for the home page grid using Bootstrap card classes.
+
+    :param title: Card heading (rendered as a nav link).
+    :param target_id: Shiny input ID of the nav button to navigate to.
+    :param description: Short description text below the title.
+    :param image: Optional filename in ``www/`` to display above the title.
+
+    """
+    content = ui.div(
+        ui.div(
+            {"class": "fw-bold fs-5 mb-1"},
+            _nav_link(title, target_id),
+        ),
+        ui.div(description),
+    )
+    if image is not None:
+        return ui.div(
+            {"class": "card mb-3"},
+            ui.div(
+                {"class": "card-body d-flex align-items-center gap-4"},
+                ui.img(
+                    src=image,
+                    alt=title,
+                    style="width:100px; height:100px; "
+                    "object-fit:contain; flex-shrink:0;",
+                ),
+                content,
+            ),
+        )
+    return ui.div(
+        {"class": "card mb-3"},
+        ui.div({"class": "card-body"}, content),
+    )
+
+
 def home_ui() -> ui.Tag:
     return ui.div(
-        {"class": "home-content p-4"},
+        {"class": "p-4"},
         ui.div(
             {"class": "alert alert-warning", "role": "alert"},
             ui.strong("Under development: "),
@@ -13,57 +72,49 @@ def home_ui() -> ui.Tag:
         ),
         ui.h2("Welcome to the TF Binding and Perturbation Explorer"),
         ui.p(
-            "This application provides an interactive interface for exploring "
-            "datasets of transcription factor (TF) binding and gene expression "
-            "responses following TF perturbation in yeast."
+            "Explore datasets of transcription factor (TF) binding and gene "
+            "expression responses following TF perturbation. Compare growth "
+            "conditions, experimental techniques, or analytic techniques. "
+            "Currently, all datasets are for ",
+            ui.em("Saccharomyces cerevisiae"),
+            " (yeast).",
         ),
         ui.h3("How to"),
         ui.p(
-            "Navigate through the tabs above to select datasets and compare them "
-            "both within and across binding and perturbation types"
+            "The tabs above take you to pages for selecting and comparing " "datasets."
         ),
-        ui.tags.ul(
-            ui.tags.li(
-                ui.strong("Select Datasets: "),
-                "Choose which binding and perturbation datasets to include in your "
-                "analysis. Use the 'filter' for each dataset to select samples "
-                "by regulator or experimental condition. The matrix shows how many "
-                "samples each selected dataset contributes, and how many samples are "
-                "shared across dataset pairs based on common regulators.",
+        ui.div(
+            {"class": "mt-3"},
+            _feature_card(
+                "Dataset selection",
+                "selection",
+                "Choose which binding and perturbation datasets to include "
+                "in your analysis.",
             ),
-            ui.tags.li(
-                ui.strong("Binding: "),
-                ui.em("(Under development.) "),
-                "Explore how TF binding targets compare across the selected binding "
-                "datasets.",
+            _feature_card(
+                "Binding",
+                "binding",
+                "Compare TF binding targets in the selected binding " "datasets.",
+                image="binding.png",
             ),
-            ui.tags.li(
-                ui.strong("Perturbation: "),
-                ui.em("(Under development.) "),
-                "Explore how transcriptional responses to TF perturbations "
-                "(gene deletion, overexpression, and TF degradation) compare across "
+            _feature_card(
+                "Perturbation",
+                "perturbation",
+                "Compare transcriptional responses to TF perturbations in "
                 "the selected perturbation datasets.",
+                image="perturbation.png",
             ),
-            ui.tags.li(
-                ui.strong("Comparison: "),
-                ui.em("(Under development.) "),
-                "Compare selected binding datasets to selected perturbation datasets. "
-                "Rank response and dual threshold optimization are implemented. "
-                "Dual threshold optimization is an algorithm developed in the Brent "
-                "lab to find the optimal rank thresholds on two ranked lists that "
-                "minimize the hypergeometric p-value — see ",
-                ui.a(
-                    "Kang et al., Genome Research 2020",
-                    href="https://pubmed.ncbi.nlm.nih.gov/32060051/",
-                    target="_blank",
-                ),
-                " for details.",
+            _feature_card(
+                "Comparison",
+                "comparison",
+                "Compare selected binding datasets to selected perturbation "
+                "datasets.",
             ),
         ),
         ui.h3("Getting Started"),
         ui.p(
             "Begin with ",
-            ui.strong("Select Datasets"),
+            _nav_link("Dataset selection", "selection"),
             " to choose and filter the datasets you want to analyse, "
             "then navigate to the other tabs to explore the results.",
         ),
