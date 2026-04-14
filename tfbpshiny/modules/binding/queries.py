@@ -18,8 +18,8 @@ from labretriever import VirtualDB
 DATASET_COLUMNS: dict[str, tuple[str, str]] = {
     "callingcards": ("callingcards_enrichment", "poisson_pval"),
     "harbison": ("effect", "pvalue"),
-    "rossi": ("enrichment", "log_poisson_pval"),
-    "chec_m2025": ("enrichment", "log_poisson_pval"),
+    "rossi": ("enrichment", "poisson_pval"),
+    "chec_m2025": ("enrichment", "poisson_pval"),
 }
 
 
@@ -206,16 +206,10 @@ def _corr_pair_sql_impl(
               joined AS (
                 SELECT
                   a.regulator_locus_tag,
-                  a.sample_id AS db_a_id,
-                  b.sample_id AS db_b_id,
-                  RANK() OVER (
-                    PARTITION BY a.regulator_locus_tag, a.sample_id, b.sample_id
-                    ORDER BY {order_a}
-                  ) AS rank_a,
-                  RANK() OVER (
-                    PARTITION BY a.regulator_locus_tag, a.sample_id, b.sample_id
-                    ORDER BY {order_b}
-                  ) AS rank_b
+                  a.sample_id  AS db_a_id,
+                  b.sample_id  AS db_b_id,
+                  a.{col_a}    AS val_a,
+                  b.{col_b}    AS val_b
                 FROM a
                 INNER JOIN b
                   ON a.regulator_locus_tag = b.regulator_locus_tag
@@ -226,15 +220,30 @@ def _corr_pair_sql_impl(
                   AND NOT isinf(b.{col_b})
                   AND NOT isnan(a.{col_a})
                   AND NOT isnan(b.{col_b})
+              ),
+              ranked AS (
+                SELECT
+                  regulator_locus_tag,
+                  db_a_id,
+                  db_b_id,
+                  RANK() OVER (
+                    PARTITION BY regulator_locus_tag, db_a_id, db_b_id
+                    ORDER BY {order_a.replace(col_a, "val_a")}
+                  ) AS rank_a,
+                  RANK() OVER (
+                    PARTITION BY regulator_locus_tag, db_a_id, db_b_id
+                    ORDER BY {order_b.replace(col_b, "val_b")}
+                  ) AS rank_b
+                FROM joined
               )
             SELECT
-              '{db_a}'          AS db_a,
+              '{db_a}'             AS db_a,
               db_a_id,
-              '{db_b}'          AS db_b,
+              '{db_b}'             AS db_b,
               db_b_id,
               regulator_locus_tag,
               corr(rank_a, rank_b) AS correlation
-            FROM joined
+            FROM ranked
             GROUP BY regulator_locus_tag, db_a_id, db_b_id
             HAVING COUNT(*) >= 3
         """
@@ -352,8 +361,19 @@ def regulator_scatter_sql(
     """
     sql_a, params_a = binding_data_query(db_a, col_a, filters_a)
     sql_b, params_b = binding_data_query(db_b, col_b, filters_b)
-    reg_key_a = f"rp{idx}a"
-    reg_key_b = f"rp{idx}b"
+
+    # Namespace filter params to avoid collisions when both datasets share
+    # a filter field name (e.g. "Experimental condition").
+    prefix = f"rp{idx}"
+    params_a = {f"{prefix}a_{k}": v for k, v in params_a.items()}
+    params_b = {f"{prefix}b_{k}": v for k, v in params_b.items()}
+    for old, new in [(k[len(f"{prefix}a_") :], k) for k in params_a]:
+        sql_a = sql_a.replace(f"${old}", f"${new}")
+    for old, new in [(k[len(f"{prefix}b_") :], k) for k in params_b]:
+        sql_b = sql_b.replace(f"${old}", f"${new}")
+
+    reg_key_a = f"{prefix}reg_a"
+    reg_key_b = f"{prefix}reg_b"
     sql_a += (
         " AND " if "WHERE" in sql_a else " WHERE "
     ) + f"regulator_locus_tag = ${reg_key_a}"
@@ -365,17 +385,26 @@ def regulator_scatter_sql(
 
     is_pvalue_a = "pval" in col_a.lower()
     is_pvalue_b = "pval" in col_b.lower()
-    order_a = f"{col_a} ASC" if is_pvalue_a else f"ABS({col_a}) DESC"
-    order_b = f"{col_b} ASC" if is_pvalue_b else f"ABS({col_b}) DESC"
+    order_val_a = "val_a ASC" if is_pvalue_a else "ABS(val_a) DESC"
+    order_val_b = "val_b ASC" if is_pvalue_b else "ABS(val_b) DESC"
 
     if method == "spearman":
+        # Project qualified aliases first so ORDER BY is unambiguous even when
+        # col_a == col_b (e.g. both datasets use "poisson_pval").
         sql = f"""
-            WITH a AS ({sql_a}), b AS ({sql_b})
+            WITH a AS ({sql_a}), b AS ({sql_b}),
+            joined AS (
+              SELECT
+                a.target_locus_tag,
+                a.{col_a} AS val_a,
+                b.{col_b} AS val_b
+              FROM a JOIN b ON a.target_locus_tag = b.target_locus_tag
+            )
             SELECT
-              a.target_locus_tag,
-              RANK() OVER (ORDER BY {order_a}) AS _val_a,
-              RANK() OVER (ORDER BY {order_b}) AS _val_b
-            FROM a JOIN b ON a.target_locus_tag = b.target_locus_tag
+              target_locus_tag,
+              RANK() OVER (ORDER BY {order_val_a}) AS _val_a,
+              RANK() OVER (ORDER BY {order_val_b}) AS _val_b
+            FROM joined
         """
     else:
         sql = f"""

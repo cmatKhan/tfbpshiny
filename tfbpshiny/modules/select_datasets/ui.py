@@ -397,7 +397,7 @@ def selection_matrix_ui() -> ui.Tag:
     """Render the intersection matrix workspace."""
     return workspace_shell(
         "selection-workspace",
-        header=workspace_heading("Sample Counts by Dataset"),
+        header=workspace_heading("Regulator Counts in Dataset Intersections"),
         body=ui.output_ui("matrix_content"),
     )
 

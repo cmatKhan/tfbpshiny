@@ -55,6 +55,42 @@ def perturbation_workspace_server(
         return list(itertools.combinations(active, 2))
 
     @reactive.calc
+    def _sym_map() -> dict[str, str]:
+        """
+        Map of regulator locus tag to ``"SYMBOL (LOCUS_TAG)"`` display string.
+
+        Queries all active perturbation datasets and merges results, so regulators that
+        appear only in a non-first dataset still receive their symbol. Later datasets do
+        not overwrite symbols already found in earlier ones. Falls back to an empty dict
+        if no dataset is available or all queries fail.
+
+        :trigger active_perturbation_datasets: re-runs when the active dataset set
+        changes.
+        :returns: Dict keyed by locus tag with display string values.
+
+        """
+        active = active_perturbation_datasets()
+        raw: dict[str, str] = {}
+        for db in active:
+            try:
+                sym_df = vdb.query(regulator_symbols_query(db))
+                for tag, sym in zip(
+                    sym_df["regulator_locus_tag"], sym_df["regulator_symbol"]
+                ):
+                    if tag not in raw:
+                        raw[tag] = sym
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load regulator symbols for perturbation dataset %s: %s",
+                    db,
+                    exc,
+                )
+        return {
+            tag: (f"{sym} ({tag})" if sym and str(sym) != "nan" and sym != tag else tag)
+            for tag, sym in raw.items()
+        }
+
+    @reactive.calc
     def _all_corr_data() -> dict[tuple[str, str], pd.DataFrame]:
         """
         Per-regulator correlation values for every active dataset pair.
@@ -156,26 +192,72 @@ def perturbation_workspace_server(
             )
             return ui.HTML(to_html(fig, include_plotlyjs="cdn", full_html=False))
 
+        sym_map = _sym_map()
+        try:
+            selected_reg = str(input.selected_regulator())
+        except Exception:
+            selected_reg = ""
+
+        # Build a single combined box trace using x as the category axis.
+        # Each point's x value is the pair label; Plotly groups points under
+        # each category and draws one box per unique x value.
+        all_x: list[str] = []
+        all_y: list[float] = []
+        all_tags: list[str] = []
+        all_hover: list[str] = []
+        sel_x: list[str] = []
+        sel_y: list[float] = []
+        sel_hover: list[str] = []
+        sel_tags: list[str] = []
         for db_a, db_b in pairs:
             df = corr_data.get((db_a, db_b), pd.DataFrame())
             label_a = display_names.get(db_a, db_a)
             label_b = display_names.get(db_b, db_b)
             pair_label = f"{label_a}<br>vs<br>{label_b}"
-            vals = (
-                df["correlation"].dropna()
-                if not df.empty
-                else pd.Series([], dtype=float)
-            )
+            if not df.empty:
+                df_clean = df.dropna(subset=["correlation"])
+                for tag, corr in zip(
+                    df_clean["regulator_locus_tag"], df_clean["correlation"]
+                ):
+                    display = sym_map.get(tag, tag)
+                    all_x.append(pair_label)
+                    all_y.append(corr)
+                    all_tags.append(tag)
+                    all_hover.append(display)
+                    if tag == selected_reg:
+                        sel_x.append(pair_label)
+                        sel_y.append(corr)
+                        sel_hover.append(display)
+                        sel_tags.append(tag)
 
+        fig.add_trace(
+            go.Box(
+                x=all_x,
+                y=all_y,
+                text=all_hover,
+                customdata=all_tags,
+                hovertemplate="%{text}<br>r = %{y:.3f}<extra></extra>",
+                hoveron="points",
+                boxpoints="all",
+                jitter=0.4,
+                pointpos=0,
+                marker=dict(size=4, opacity=0.5),
+                line=dict(width=1.5),
+                showlegend=False,
+            )
+        )
+
+        if sel_x:
             fig.add_trace(
-                go.Box(
-                    y=vals,
-                    name=pair_label,
-                    boxpoints="all",
-                    jitter=0.4,
-                    pointpos=0,
-                    marker=dict(size=4, opacity=0.5),
-                    line=dict(width=1.5),
+                go.Scatter(
+                    x=sel_x,
+                    y=sel_y,
+                    mode="markers",
+                    text=sel_hover,
+                    customdata=sel_tags,
+                    hovertemplate="%{text}<br>r = %{y:.3f}<extra></extra>",
+                    marker=dict(size=10, color="black", symbol="circle"),
+                    showlegend=False,
                 )
             )
 
@@ -185,7 +267,25 @@ def perturbation_workspace_server(
             showlegend=False,
             margin=dict(l=40, r=20, t=50, b=80),
         )
-        return ui.HTML(to_html(fig, include_plotlyjs="cdn", full_html=False))
+        input_id = session.ns("selected_regulator")
+        post_script = (
+            "(function() {"
+            "  var div = document.getElementById('{plot_id}');"
+            "  div.on('plotly_click', function(data) {"
+            "    var pt = data.points[0];"
+            "    if (!pt || pt.customdata === undefined) return;"
+            f"    Shiny.setInputValue('{input_id}', pt.customdata, {{priority: 'event'}});"  # type: ignore # noqa:E501
+            "  });"
+            "})();"
+        )
+        return ui.HTML(
+            to_html(
+                fig,
+                include_plotlyjs="cdn",
+                full_html=False,
+                post_script=post_script,
+            )
+        )
 
     @render.ui
     def regulator_selector() -> ui.Tag:
@@ -206,18 +306,7 @@ def perturbation_workspace_server(
         if not corr_data:
             return ui.span()
 
-        active = active_perturbation_datasets()
-        sym_map: dict[str, str] = {}
-        for db in active:
-            try:
-                sym_df = vdb.query(regulator_symbols_query(db))
-                sym_map.update(
-                    zip(sym_df["regulator_locus_tag"], sym_df["regulator_symbol"])
-                )
-                break
-            except Exception:
-                pass
-
+        sym_map = _sym_map()
         all_regs: set[str] = set()
         for df in corr_data.values():
             if not df.empty:
@@ -225,10 +314,7 @@ def perturbation_workspace_server(
 
         if not all_regs:
             return ui.span()
-        choices = {
-            r: f"{sym} ({r})" if (sym := sym_map.get(r) or "") else r
-            for r in sorted(all_regs)
-        }
+        choices = {r: sym_map.get(r, r) for r in all_regs}
         choices = dict(sorted(choices.items(), key=lambda kv: kv[1].lower()))
 
         try:
@@ -296,35 +382,54 @@ def perturbation_workspace_server(
             )
             return ui.HTML(to_html(fig, include_plotlyjs=False, full_html=False))
 
-        # First pass: collect data and track which datasets are missing the regulator
+        # First pass: collect data and track which datasets are missing the regulator.
+        # A dataset is only reported missing if it has no successful pair — a dataset
+        # involved in a failed pair but succeeding in another is not "missing".
         pair_data: list[tuple[str, str, str, str, object]] = []
-        missing_datasets: set[str] = set()
+        failed_datasets: set[str] = set()
+        succeeded_datasets: set[str] = set()
+
+        def _strip_reg(f: dict | None) -> dict | None:
+            # Strip regulator_locus_tag from filters — the scatter query adds its
+            # own per-regulator WHERE clause; keeping it would create an AND conflict.
+            if not f:
+                return f
+            stripped = {k: v for k, v in f.items() if k != "regulator_locus_tag"}
+            return stripped or None
 
         for idx, (db_a, db_b) in enumerate(pairs, start=1):
             try:
                 col_a = get_measurement_column(db_a, preference)
                 col_b = get_measurement_column(db_b, preference)
+                fa = _strip_reg(filters.get(db_a))
+                fb = _strip_reg(filters.get(db_b))
                 scatter_sql, scatter_params = regulator_scatter_sql(
                     db_a,
                     col_a,
-                    filters.get(db_a),
+                    fa,
                     db_b,
                     col_b,
-                    filters.get(db_b),
+                    fb,
                     method,
                     reg,
                     idx,
                 )
                 merged = vdb.query(scatter_sql, **scatter_params)
+                logger.debug(
+                    f"scatter {db_a}/{db_b} reg={reg!r} "
+                    f"rows={len(merged)} fa={fa!r} fb={fb!r}"
+                )
             except Exception:
                 logger.exception(f"Regulator plot fetch failed for {db_a}/{db_b}")
                 continue
 
             if merged.empty:
-                missing_datasets.add(display_names.get(db_a, db_a))
-                missing_datasets.add(display_names.get(db_b, db_b))
+                failed_datasets.add(display_names.get(db_a, db_a))
+                failed_datasets.add(display_names.get(db_b, db_b))
                 continue
 
+            succeeded_datasets.add(display_names.get(db_a, db_a))
+            succeeded_datasets.add(display_names.get(db_b, db_b))
             pair_data.append((db_a, db_b, col_a, col_b, merged))
 
         # Build one figure per valid pair
@@ -343,9 +448,7 @@ def perturbation_workspace_server(
                     marker=dict(size=4, opacity=0.6, color="#4A90D9"),
                     text=merged["target_locus_tag"],
                     hovertemplate=(
-                        "%{text}<br>"
-                        + f"{la}: %{{x:.3f}}<br>"
-                        + f"{lb}: %{{y:.3f}}<extra></extra>"
+                        f"{la}: %{{x:.3f}}<br>" + f"{lb}: %{{y:.3f}}<extra></extra>"
                     ),
                     showlegend=False,
                 )
@@ -381,8 +484,9 @@ def perturbation_workspace_server(
             )
 
         missing_note: list[ui.Tag] = []
-        if missing_datasets:
-            names = ", ".join(sorted(missing_datasets))
+        truly_missing = failed_datasets - succeeded_datasets
+        if truly_missing:
+            names = ", ".join(sorted(truly_missing))
             missing_note.append(
                 ui.p(
                     f"{reg} was not found in: {names}. "

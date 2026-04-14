@@ -681,6 +681,7 @@ def select_datasets_sidebar_server(
         if active_module is not None:
             active_module()
         is_collapsed = collapsed()
+        active_filter_names: set[str] = set(dataset_filters())
 
         search_term = ""
         if not is_collapsed:
@@ -713,7 +714,8 @@ def select_datasets_sidebar_server(
                 ui.input_action_button(
                     _filter_btn_id(db_name),
                     "Filter",
-                    class_="btn-filter-dataset",
+                    class_="btn-filter-dataset"
+                    + (" btn-filter-active" if db_name in active_filter_names else ""),
                 ),
             )
 

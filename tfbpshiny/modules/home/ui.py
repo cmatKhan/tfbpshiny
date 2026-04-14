@@ -79,7 +79,7 @@ def home_ui() -> ui.Tag:
             ui.em("Saccharomyces cerevisiae"),
             " (yeast).",
         ),
-        ui.h3("How to"),
+        ui.h3("Getting Started"),
         ui.p(
             "The tabs above take you to pages for selecting and comparing " "datasets."
         ),
@@ -88,8 +88,9 @@ def home_ui() -> ui.Tag:
             _feature_card(
                 "Dataset selection",
                 "selection",
-                "Choose which binding and perturbation datasets to include "
-                "in your analysis.",
+                "Begin here to choose and filter the datasets you want to "
+                "analyse, then navigate to the other tabs to explore the "
+                "results.",
             ),
             _feature_card(
                 "Binding",
@@ -110,12 +111,5 @@ def home_ui() -> ui.Tag:
                 "Compare selected binding datasets to selected perturbation "
                 "datasets.",
             ),
-        ),
-        ui.h3("Getting Started"),
-        ui.p(
-            "Begin with ",
-            _nav_link("Dataset selection", "selection"),
-            " to choose and filter the datasets you want to analyse, "
-            "then navigate to the other tabs to explore the results.",
         ),
     )
