@@ -41,6 +41,7 @@ from tfbpshiny.modules.select_datasets.ui import (
     selection_matrix_ui,
     selection_sidebar_ui,
 )
+from tfbpshiny.utils.profiler import log_session_event
 from tfbpshiny.utils.vdb_init import initialize_data
 
 if not os.getenv("DOCKER_ENV"):
@@ -110,6 +111,10 @@ app_ui = ui.page_fillable(
 def app_server(input: Any, output: Any, session: Any) -> None:
     """Create shared reactive state and call all module servers."""
 
+    sid: str = session.id
+    log_session_event(profile_logger, "START", sid)
+    session.on_ended(lambda: log_session_event(profile_logger, "END", sid))
+
     # this stores the name of the currently active module, ie
     # "home", "selection", "binding", "perturbation", or "comparison"
     active_module: reactive.Value[str] = reactive.value("home")
@@ -132,6 +137,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         vdb=vdb,
         logger=logger,
         profile_logger=profile_logger,
+        session_id=sid,
     )
 
     corr_type, col_preference = binding_sidebar_server(
@@ -150,6 +156,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         vdb=vdb,
         logger=logger,
         profile_logger=profile_logger,
+        session_id=sid,
     )
 
     corr_type_p, col_preference_p = perturbation_sidebar_server(
@@ -168,6 +175,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         vdb=vdb,
         logger=logger,
         profile_logger=profile_logger,
+        session_id=sid,
     )
 
     top_n, effect_threshold, pvalue_threshold, facet_by = comparison_sidebar_server(
@@ -189,6 +197,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         vdb=vdb,
         logger=logger,
         profile_logger=profile_logger,
+        session_id=sid,
     )
 
     # set the active module when a nav button is clicked

@@ -40,6 +40,7 @@ def select_datasets_workspace_server(
     vdb: VirtualDB,
     logger: Logger,
     profile_logger: Logger,
+    session_id: str = "",
 ) -> None:
     """Render the sample-count matrix for all active datasets."""
 
@@ -91,6 +92,7 @@ def select_datasets_workspace_server(
                 module="select_datasets",
                 dataset=db_name,
                 context="_matrix_data",
+                session_id=session_id,
             ):
                 reg_df = vdb.query(sql, **params)
             regulators = set(reg_df["regulator_locus_tag"].dropna().astype(str))
@@ -103,6 +105,7 @@ def select_datasets_workspace_server(
                 module="select_datasets",
                 dataset=db_name,
                 context="_matrix_data",
+                session_id=session_id,
             ):
                 n_samples = int(vdb.query(sql, **params).iloc[0, 0])
 
@@ -127,6 +130,7 @@ def select_datasets_workspace_server(
                     module="select_datasets",
                     dataset=f"{db_a}x{db_b}",
                     context="_matrix_data",
+                    session_id=session_id,
                 ):
                     n_a = int(vdb.query(sql_a, **params_a).iloc[0, 0])
                 with profile_span(
@@ -135,6 +139,7 @@ def select_datasets_workspace_server(
                     module="select_datasets",
                     dataset=f"{db_a}x{db_b}",
                     context="_matrix_data",
+                    session_id=session_id,
                 ):
                     n_b = int(vdb.query(sql_b, **params_b).iloc[0, 0])
 

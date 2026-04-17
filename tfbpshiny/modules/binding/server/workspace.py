@@ -32,6 +32,7 @@ def binding_workspace_server(
     vdb: VirtualDB,
     logger: Logger,
     profile_logger: Logger,
+    session_id: str = "",
 ) -> None:
     """
     Render the binding correlation rows: pairwise distributions
@@ -115,6 +116,7 @@ def binding_workspace_server(
                     module="binding",
                     dataset=f"{db_a}x{db_b}",
                     context="_all_corr_data",
+                    session_id=session_id,
                 ):
                     result[(db_a, db_b)] = corr_pair_sql(
                         vdb,
@@ -263,6 +265,7 @@ def binding_workspace_server(
             "plot.build",
             module="binding",
             context="distributions_plot",
+            session_id=session_id,
         ):
             html = to_html(
                 fig, include_plotlyjs="cdn", full_html=False, post_script=post_script
@@ -401,6 +404,7 @@ def binding_workspace_server(
                     "vdb.query",
                     module="binding",
                     context="scatter",
+                    session_id=session_id,
                 ):
                     merged = vdb.query(scatter_sql, **scatter_params)
                 logger.debug(
@@ -469,6 +473,7 @@ def binding_workspace_server(
                 "plot.build",
                 module="binding",
                 context="regulator_plot",
+                session_id=session_id,
             ):
                 plot_html = to_html(fig, include_plotlyjs=False, full_html=False)
             plot_divs.append(

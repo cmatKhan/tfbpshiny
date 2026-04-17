@@ -72,6 +72,7 @@ def comparison_workspace_server(
     vdb: VirtualDB,
     logger: Logger,
     profile_logger: Logger,
+    session_id: str = "",
 ) -> None:
     """Render the Top-N by Binding workspace plot."""
 
@@ -141,6 +142,7 @@ def comparison_workspace_server(
                         module="comparison",
                         dataset=f"{b_db}x{p_db}",
                         context="_topn_data",
+                        session_id=session_id,
                     ):
                         result = topn_responsive_ratio(
                             vdb=vdb,
@@ -176,6 +178,7 @@ def comparison_workspace_server(
             "df.concat",
             module="comparison",
             context="_topn_data",
+            session_id=session_id,
         ):
             out = pd.concat(results, ignore_index=True)
         out["percent_responsive"] = out["responsive_ratio"] * 100
@@ -288,6 +291,7 @@ def comparison_workspace_server(
             "plot.build",
             module="comparison",
             context="topn_plot",
+            session_id=session_id,
         ):
             html = to_html(fig, include_plotlyjs="cdn", full_html=False)
         return ui.HTML(html)
