@@ -102,6 +102,16 @@ resource "aws_instance" "tfbpshiny" {
 
   user_data = file("${path.module}/user_data.sh")
 
+  # NOTE: ami and user_data are pinned via ignore_changes. This means that
+  # if the Amazon Linux 2023 AMI is updated or user_data.sh is modified,
+  # terraform apply will NOT replace the instance. This is intentional —
+  # both changes force instance termination, which would take down production.
+  # To deploy a new AMI or updated user_data, terminate the instance manually,
+  # remove this lifecycle block, and run terraform apply to reprovision.
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
+
   tags = {
     Name = "tfbpshiny-production"
   }
