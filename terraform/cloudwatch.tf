@@ -1,3 +1,7 @@
+# NOTE! THIS isn't working to create the dashboard. But I could paste in queries
+# by hand to each panel and that did work so the logging is producing correct
+# values
+
 locals {
   log_group_app     = "/tfbpshiny/production"
   log_group_traefik = "/tfbpshiny/production/traefik"
