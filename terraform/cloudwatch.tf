@@ -11,10 +11,6 @@ locals {
 # already exists in the account, import it with:
 #   terraform import aws_cloudwatch_log_group.app /tfbpshiny/production
 #   terraform import aws_cloudwatch_log_group.traefik /tfbpshiny/production/traefik
-#
-# NOTE: After applying, update the Docker awslogs driver for the Traefik
-# container to use awslogs-group=/tfbpshiny/production/traefik so its noisy
-# network-discovery warnings stop polluting the Shiny app's log group.
 
 resource "aws_cloudwatch_log_group" "app" {
   name              = local.log_group_app
@@ -27,44 +23,41 @@ resource "aws_cloudwatch_log_group" "traefik" {
 }
 
 # ---------------------------------------------------------------------------
-# Metric filters — extract numeric values from pipe-delimited log records
+# Metric filters — JSON format, no tokenization ambiguity
 # ---------------------------------------------------------------------------
-# Bracket-pattern filters tokenize on whitespace, so every pipe character is
-# its own token (p1..p7). Field positions below reflect that.
+# Records emitted by the app are single-line JSON objects:
+#   PROFILE: {"event":"PROFILE","ts":"...","elapsed_s":0.1234,"op":"...","module":"...","dataset":"...","context":"...","session_id":"..."}
+#   SESSION: {"event":"SESSION","ts":"...","lifecycle":"START"|"END","session_id":"..."}
 #
-# Record format emitted by the app:
-#   PROFILE | <ts> | <elapsed_s> | <op> | <module> | <dataset> | <context> | <sid>
-#   SESSION | <ts> | START|END   | <sid>
+# CloudWatch JSON metric filters match on field values and extract numeric
+# fields directly, with no whitespace-tokenization issues.
 #
-# default_value is intentionally omitted. If it were set to 0, every minute
-# without a PROFILE event would emit a zero, dragging the latency average
-# toward zero and suppressing the alarm during low traffic.
+# default_value is intentionally omitted on latency filters. Setting it to 0
+# would drag the average toward zero during quiet periods and suppress alarms.
 
-# All PROFILE records — used for dashboard widgets that show latency across
-# every operation. Not used for the vdb.query-specific alarm.
 resource "aws_cloudwatch_log_metric_filter" "profile_latency" {
   name           = "tfbpshiny-profile-latency"
   log_group_name = aws_cloudwatch_log_group.app.name
-  pattern        = "[marker=PROFILE, p1, ts, p2, elapsed_s, p3, op, p4, module, p5, dataset, p6, context, p7, sid]"
+  pattern        = "{ $.event = \"PROFILE\" }"
 
   metric_transformation {
     name      = "ProfileLatencySeconds"
     namespace = local.namespace
-    value     = "$elapsed_s"
+    value     = "$.elapsed_s"
     unit      = "Seconds"
   }
 }
 
-# Narrow filter that only matches op=vdb.query. Drives the latency alarm.
+# Narrow filter for vdb.query only — drives the latency alarm.
 resource "aws_cloudwatch_log_metric_filter" "vdb_query_latency" {
   name           = "tfbpshiny-vdb-query-latency"
   log_group_name = aws_cloudwatch_log_group.app.name
-  pattern        = "[marker=PROFILE, p1, ts, p2, elapsed_s, p3, op=vdb.query, p4, module, p5, dataset, p6, context, p7, sid]"
+  pattern        = "{ $.event = \"PROFILE\" && $.op = \"vdb.query\" }"
 
   metric_transformation {
     name      = "VdbQueryLatencySeconds"
     namespace = local.namespace
-    value     = "$elapsed_s"
+    value     = "$.elapsed_s"
     unit      = "Seconds"
   }
 }
@@ -73,7 +66,7 @@ resource "aws_cloudwatch_log_metric_filter" "vdb_query_latency" {
 resource "aws_cloudwatch_log_metric_filter" "session_start" {
   name           = "tfbpshiny-session-start"
   log_group_name = aws_cloudwatch_log_group.app.name
-  pattern        = "[marker=SESSION, p1, ts, p2, event=START, p3, sid]"
+  pattern        = "{ $.event = \"SESSION\" && $.lifecycle = \"START\" }"
 
   metric_transformation {
     name          = "SessionStart"
@@ -87,25 +80,22 @@ resource "aws_cloudwatch_log_metric_filter" "session_start" {
 # ---------------------------------------------------------------------------
 # Alarms
 # ---------------------------------------------------------------------------
-# Fires when avg vdb.query latency exceeds 5 s over 15 min (3 × 5-min periods).
-# Raise the threshold to 10–30 s while the app is known to be slow; drop it
-# toward 2–5 s once query performance improves.
+# Raise threshold while the app is known to be slow; lower toward 2-5 s
+# once query performance improves.
 resource "aws_cloudwatch_metric_alarm" "high_vdb_query_latency" {
   alarm_name          = "tfbpshiny-high-vdb-query-latency"
-  alarm_description   = "Avg vdb.query latency > 5 s over 15 min — investigate vector DB bottlenecks."
+  alarm_description   = "Avg vdb.query latency > 30 s over 15 min — investigate query bottlenecks."
   namespace           = local.namespace
   metric_name         = "VdbQueryLatencySeconds"
   statistic           = "Average"
   period              = 300
   evaluation_periods  = 3
   datapoints_to_alarm = 3
-  threshold           = 5
+  threshold           = 30
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
 }
 
-# Fires when more than 20 sessions start within a 5-minute window.
-# Adjust threshold based on observed normal traffic once the app is live.
 resource "aws_cloudwatch_metric_alarm" "high_session_count" {
   alarm_name          = "tfbpshiny-high-session-count"
   alarm_description   = "More than 20 new sessions in 5 min — unexpected traffic spike."
@@ -122,10 +112,8 @@ resource "aws_cloudwatch_metric_alarm" "high_session_count" {
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
-# All Logs Insights queries target only the app log group (Traefik lives
-# elsewhere now), so the PROFILE/SESSION filters aren't competing with
-# reverse-proxy noise. Parse patterns use the exact pipe-with-spaces format
-# the app emits; if you ever change that format, update these in lockstep.
+# Logs Insights auto-discovers JSON fields, so no parse directive needed.
+# Queries filter on $.event to separate PROFILE from SESSION records.
 
 resource "aws_cloudwatch_dashboard" "tfbpshiny" {
   dashboard_name = "tfbpshiny-production"
@@ -143,9 +131,8 @@ resource "aws_cloudwatch_dashboard" "tfbpshiny" {
           view          = "table"
           logGroupNames = [local.log_group_app]
           queryString   = <<-EOT
-            fields @timestamp, @message
-            | filter @message like /^PROFILE \|/
-            | parse @message "PROFILE | * | * | * | * | * | * | *" as ts, elapsed_s, op, module, dataset, context, sid
+            fields @timestamp, op, module, dataset, context, elapsed_s
+            | filter event = "PROFILE"
             | stats avg(elapsed_s) as avg_s, max(elapsed_s) as max_s, count() as n by op, module, context
             | sort avg_s desc
           EOT
@@ -163,10 +150,8 @@ resource "aws_cloudwatch_dashboard" "tfbpshiny" {
           view          = "timeSeries"
           logGroupNames = [local.log_group_app]
           queryString   = <<-EOT
-            fields @timestamp, @message
-            | filter @message like /^SESSION \|/
-            | parse @message "SESSION | * | * | *" as ts, event, sid
-            | filter event = "START"
+            fields @timestamp, session_id
+            | filter event = "SESSION" and lifecycle = "START"
             | stats count(*) as sessions_started by bin(5m)
             | sort @timestamp asc
           EOT
@@ -184,11 +169,9 @@ resource "aws_cloudwatch_dashboard" "tfbpshiny" {
           view          = "bar"
           logGroupNames = [local.log_group_app]
           queryString   = <<-EOT
-            fields @timestamp, @message
-            | filter @message like /^SESSION \|/
-            | parse @message "SESSION | * | * | *" as ts, event, sid
-            | filter event = "START"
-            | stats count_distinct(sid) as unique_visitors by bin(1d)
+            fields @timestamp, session_id
+            | filter event = "SESSION" and lifecycle = "START"
+            | stats count_distinct(session_id) as unique_visitors by bin(1d)
             | sort @timestamp asc
           EOT
         }
@@ -205,9 +188,8 @@ resource "aws_cloudwatch_dashboard" "tfbpshiny" {
           view          = "timeSeries"
           logGroupNames = [local.log_group_app]
           queryString   = <<-EOT
-            fields @timestamp, @message
-            | filter @message like /^PROFILE \|/
-            | parse @message "PROFILE | * | * | * | * | * | * | *" as ts, elapsed_s, op, module, dataset, context, sid
+            fields @timestamp, op, elapsed_s
+            | filter event = "PROFILE"
             | stats avg(elapsed_s) as avg_s by bin(5m), op
             | sort @timestamp asc
           EOT

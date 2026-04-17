@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -19,19 +20,18 @@ def profile_span(
     session_id: str = "",
 ) -> Generator[None]:
     """
-    Time a block of code and emit one fixed-schema pipe-delimited record to *logger*.
+    Time a block of code and emit one structured JSON record to *logger*.
 
-    The record always has exactly eight pipe-separated columns so it can be read
-    without regex using ``pandas.read_csv(sep="|")``:
+    Each record has the following keys::
 
-    ::
-
-        PROFILE | timestamp | elapsed_s | op | module | dataset | context | session_id
+        {"event": "PROFILE", "ts": "...", "elapsed_s": 0.1234,
+         "op": "...", "module": "...", "dataset": "...",
+         "context": "...", "session_id": "..."}
 
     :param logger: The ``"profiler"`` logger.
     :param op: Operation label, e.g. ``"vdb.query"`` or ``"plot.build"``.
     :param module: Shiny module name, e.g. ``"binding"``. Empty for init-time spans.
-    :param dataset: Dataset(s) involved, e.g. ``"harbison"`` or ``"harbison x rossi"``.
+    :param dataset: Dataset(s) involved, e.g. ``"harbison"`` or ``"harbisонxrossi"``.
     :param context: Function or plot name providing location, e.g. ``"_all_corr_data"``.
     :param session_id: Shiny session ID, used to correlate spans and count concurrent
         users. Empty for init-time spans that run outside a session.
@@ -44,28 +44,29 @@ def profile_span(
         elapsed = time.perf_counter() - t0
         ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         logger.debug(
-            " | ".join(
-                [
-                    "PROFILE",
-                    ts,
-                    f"{elapsed:.4f}",
-                    op,
-                    module,
-                    dataset,
-                    context,
-                    session_id,
-                ]
+            json.dumps(
+                {
+                    "event": "PROFILE",
+                    "ts": ts,
+                    "elapsed_s": round(elapsed, 4),
+                    "op": op,
+                    "module": module,
+                    "dataset": dataset,
+                    "context": context,
+                    "session_id": session_id,
+                }
             )
         )
 
 
 def log_session_event(logger: Logger, event: str, session_id: str) -> None:
     """
-    Emit a SESSION_START or SESSION_END record to *logger*.
+    Emit a session lifecycle record to *logger*.
 
-    Record format (five pipe-separated columns)::
+    Each record has the following keys::
 
-        SESSION | timestamp | event | session_id
+        {"event": "SESSION", "ts": "...",
+        "lifecycle": "START"|"END", "session_id": "..."}
 
     :param logger: The ``"profiler"`` logger.
     :param event: ``"START"`` or ``"END"``.
@@ -73,7 +74,16 @@ def log_session_event(logger: Logger, event: str, session_id: str) -> None:
 
     """
     ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-    logger.debug(" | ".join(["SESSION", ts, event, session_id]))
+    logger.debug(
+        json.dumps(
+            {
+                "event": "SESSION",
+                "ts": ts,
+                "lifecycle": event,
+                "session_id": session_id,
+            }
+        )
+    )
 
 
 __all__ = ["profile_span", "log_session_event"]
