@@ -29,12 +29,6 @@ def comparison_workspace_ui() -> ui.Tag:
         body=ui.div(
             ui.div(
                 {"class": "workspace-section"},
-                ui.h3("Dual Threshold Optimization"),
-                ui.output_ui("dto_plot"),
-            ),
-            ui.hr(),
-            ui.div(
-                {"class": "workspace-section"},
                 ui.h3("Top N by Binding"),
                 ui.output_ui("topn_plot"),
             ),

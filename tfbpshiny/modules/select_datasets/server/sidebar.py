@@ -28,7 +28,11 @@ from tfbpshiny.modules.select_datasets.server.dataset_row import (
     dataset_row_ui,
 )
 from tfbpshiny.modules.select_datasets.ui import _slugify
-from tfbpshiny.utils.vdb_init import AppDatasets
+from tfbpshiny.utils.vdb_init import (
+    DEFAULT_ACTIVE_DATASETS,
+    DEFAULT_DATASET_FILTERS,
+    AppDatasets,
+)
 
 
 def _build_experimental_condition_field_choices(
@@ -140,7 +144,9 @@ def select_datasets_sidebar_server(
     collapsed: reactive.Value[bool] = reactive.value(False)
     # {<db_name>: {<field_name>: {"type": "categorical" or "numeric" or "bool",
     #                              "value": list[str] | [lo, hi] | bool}}}
-    dataset_filters: reactive.Value[dict[str, Any]] = reactive.value({})
+    dataset_filters: reactive.Value[dict[str, Any]] = reactive.value(
+        DEFAULT_DATASET_FILTERS
+    )
     # tracks which db_name's filter modal is currently open
     modal_open_for: reactive.Value[str | None] = reactive.value(None)
     # stores the DataFrame fetched when a filter modal is opened
@@ -149,7 +155,10 @@ def select_datasets_sidebar_server(
     # Per-dataset toggle state — persists so toggles restore correctly on re-render.
     # Stored as a single reactive dict so all toggles are updated atomically.
     _toggle_state: reactive.Value[dict[str, bool]] = reactive.value(
-        {db_name: False for db_name, _, _ in binding_datasets + perturbation_datasets}
+        {
+            db_name: db_name in DEFAULT_ACTIVE_DATASETS
+            for db_name, _, _ in binding_datasets + perturbation_datasets
+        }
     )
 
     # Active dataset lists derived from toggle state. Using @reactive.calc

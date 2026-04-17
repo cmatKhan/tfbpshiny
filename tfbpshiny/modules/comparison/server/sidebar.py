@@ -9,7 +9,7 @@ from typing import Any
 from labretriever import VirtualDB
 from shiny import module, reactive, render, ui
 
-from tfbpshiny.components import sidebar_section
+from tfbpshiny.components import sidebar_label
 from tfbpshiny.modules.comparison.queries import (
     DEFAULT_EFFECT_THRESHOLD,
     DEFAULT_PVALUE_THRESHOLD,
@@ -34,11 +34,6 @@ def comparison_sidebar_server(
 ]:
     """
     Render comparison sidebar controls and return reactive selections.
-
-    The sidebar has two sections matching the two workspace rows:
-    - **Dual Threshold Optimization**: no user controls (DTO is pre-computed).
-    - **Top N by Binding**: top_n, effect threshold, pvalue threshold,
-        facet orientation.
 
     :returns: Tuple of (top_n, effect_threshold, pvalue_threshold, facet_by).
 
@@ -117,53 +112,40 @@ def comparison_sidebar_server(
             )
 
         return ui.div(
-            # DTO section — no controls
-            sidebar_section(
-                "Dual Threshold Optimization",
-                ui.p(
-                    {"class": "text-muted", "style": "font-size:0.85em;"},
-                    "DTO results are pre-computed; no parameters to set.",
-                ),
+            ui.input_numeric(
+                "top_n",
+                "Top N",
+                value=top_n(),
+                min=1,
+                max=500,
+                step=5,
             ),
-            ui.hr(),
-            # Top-N section
-            sidebar_section(
-                "Top N by Binding",
-                ui.input_numeric(
-                    "top_n",
-                    "Top N",
-                    value=top_n(),
-                    min=1,
-                    max=500,
-                    step=5,
-                ),
-                ui.div({"class": "sidebar-section-title"}, "Responsive threshold"),
-                ui.input_slider(
-                    "effect_threshold",
-                    "Min |effect|",
-                    min=0.0,
-                    max=5.0,
-                    value=effect_threshold(),
-                    step=0.1,
-                ),
-                ui.input_slider(
-                    "pvalue_threshold",
-                    "Max p-value",
-                    min=0.001,
-                    max=1.0,
-                    value=pvalue_threshold(),
-                    step=0.001,
-                ),
-                ui.div({"class": "sidebar-section-title"}, "Facet by"),
-                ui.input_radio_buttons(
-                    "facet_by",
-                    label=None,
-                    choices={
-                        "binding": "Binding source",
-                        "perturbation": "Perturbation source",
-                    },
-                    selected=facet_by(),
-                ),
+            sidebar_label("Responsive threshold"),
+            ui.input_slider(
+                "effect_threshold",
+                "Min |effect|",
+                min=0.0,
+                max=5.0,
+                value=effect_threshold(),
+                step=0.1,
+            ),
+            ui.input_slider(
+                "pvalue_threshold",
+                "Max p-value",
+                min=0.001,
+                max=1.0,
+                value=pvalue_threshold(),
+                step=0.001,
+            ),
+            sidebar_label("Facet by"),
+            ui.input_radio_buttons(
+                "facet_by",
+                label=None,
+                choices={
+                    "binding": "Binding source",
+                    "perturbation": "Perturbation source",
+                },
+                selected=facet_by(),
             ),
         )
 

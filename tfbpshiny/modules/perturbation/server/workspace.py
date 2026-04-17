@@ -15,8 +15,8 @@ from tfbpshiny.modules.perturbation.queries import (
     corr_pair_sql,
     get_measurement_column,
     regulator_scatter_sql,
-    regulator_symbols_query,
 )
+from tfbpshiny.utils.vdb_init import get_regulator_display_name
 
 
 @module.server
@@ -41,6 +41,11 @@ def perturbation_workspace_server(
         for db_name in vdb.get_datasets()
     }
 
+    _reg_df = get_regulator_display_name(vdb)
+    sym_map: dict[str, str] = dict(
+        zip(_reg_df["regulator_locus_tag"], _reg_df["display_name"])
+    )
+
     @reactive.calc
     def _pairs() -> list[tuple[str, str]]:
         """
@@ -53,42 +58,6 @@ def perturbation_workspace_server(
         """
         active = active_perturbation_datasets()
         return list(itertools.combinations(active, 2))
-
-    @reactive.calc
-    def _sym_map() -> dict[str, str]:
-        """
-        Map of regulator locus tag to ``"SYMBOL (LOCUS_TAG)"`` display string.
-
-        Queries all active perturbation datasets and merges results, so regulators that
-        appear only in a non-first dataset still receive their symbol. Later datasets do
-        not overwrite symbols already found in earlier ones. Falls back to an empty dict
-        if no dataset is available or all queries fail.
-
-        :trigger active_perturbation_datasets: re-runs when the active dataset set
-        changes.
-        :returns: Dict keyed by locus tag with display string values.
-
-        """
-        active = active_perturbation_datasets()
-        raw: dict[str, str] = {}
-        for db in active:
-            try:
-                sym_df = vdb.query(regulator_symbols_query(db))
-                for tag, sym in zip(
-                    sym_df["regulator_locus_tag"], sym_df["regulator_symbol"]
-                ):
-                    if tag not in raw:
-                        raw[tag] = sym
-            except Exception as exc:
-                logger.warning(
-                    "Failed to load regulator symbols for perturbation dataset %s: %s",
-                    db,
-                    exc,
-                )
-        return {
-            tag: (f"{sym} ({tag})" if sym and str(sym) != "nan" and sym != tag else tag)
-            for tag, sym in raw.items()
-        }
 
     @reactive.calc
     def _all_corr_data() -> dict[tuple[str, str], pd.DataFrame]:
@@ -192,7 +161,7 @@ def perturbation_workspace_server(
             )
             return ui.HTML(to_html(fig, include_plotlyjs="cdn", full_html=False))
 
-        sym_map = _sym_map()
+        # sym_map is built at server init from the pre-computed lookup table
         try:
             selected_reg = str(input.selected_regulator())
         except Exception:
@@ -306,7 +275,7 @@ def perturbation_workspace_server(
         if not corr_data:
             return ui.span()
 
-        sym_map = _sym_map()
+        # sym_map is built at server init from the pre-computed lookup table
         all_regs: set[str] = set()
         for df in corr_data.values():
             if not df.empty:

@@ -315,14 +315,16 @@ def topn_responsive_ratio(
     )
     SELECT
         b.binding_sample_id,
+        b.regulator_locus_tag,
         pert.perturbation_sample_id,
         COUNT(*)                                         AS n,
+        SUM(pert.is_responsive)::INTEGER                 AS n_responsive,
         SUM(pert.is_responsive)::DOUBLE / COUNT(*)       AS responsive_ratio
     FROM top_n_binding b
     JOIN perturbation pert
         ON  b.regulator_locus_tag = pert.regulator_locus_tag
         AND b.target_locus_tag    = pert.target_locus_tag
-    GROUP BY b.binding_sample_id, pert.perturbation_sample_id
+    GROUP BY b.binding_sample_id, b.regulator_locus_tag, pert.perturbation_sample_id
     """
 
     if sql_only:
@@ -370,12 +372,12 @@ BINDING_CONFIGS: dict[str, dict] = {
     ),
     "chec_m2025": dict(
         binding_sample_col="sample_id",
-        rank_col="score",
+        rank_col="enrichment",
         rank_asc=False,
     ),
     "rossi": dict(
         binding_sample_col="sample_id",
-        rank_col="score",
+        rank_col="enrichment",
         rank_asc=False,
     ),
 }

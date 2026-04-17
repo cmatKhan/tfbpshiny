@@ -151,21 +151,6 @@ def corr_pair_sql(
     )
 
 
-def regulator_symbols_query(db_name: str) -> str:
-    """
-    Return SQL to fetch distinct regulator locus tags and symbols from a dataset's
-    metadata table.
-
-    :param db_name: Dataset name (metadata table is ``{db_name}_meta``).
-    :return: SQL string with no parameters.
-
-    """
-    return (
-        f"SELECT DISTINCT regulator_locus_tag, regulator_symbol "
-        f"FROM {db_name}_meta WHERE regulator_locus_tag IS NOT NULL"
-    )
-
-
 def regulator_scatter_sql(
     db_a: str,
     col_a: str,
@@ -258,6 +243,5 @@ __all__ = [
     "get_measurement_column",
     "perturbation_data_query",
     "corr_pair_sql",
-    "regulator_symbols_query",
     "regulator_scatter_sql",
 ]

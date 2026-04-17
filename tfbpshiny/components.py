@@ -215,13 +215,27 @@ def group_header(text: str) -> ui.Tag:
 
 def sidebar_text(*children: Any) -> ui.Tag:
     """
-    Body text sized to ``--sidebar-font-size`` (default 0.8125 rem). Adjust the CSS
-    variable in ``:root`` to rescale all sidebar text at once.
+    Inline body text styled to ``--color-text``.
 
-    CSS: ``.selection-sidebar .sidebar-text``
+    CSS: ``.sidebar-text``
 
     """
     return ui.span({"class": "sidebar-text"}, *children)
+
+
+def sidebar_label(text: str) -> ui.Tag:
+    """
+    Block-level section label for grouping controls within a sidebar.
+
+    Uses Bootstrap's ``form-label`` class for consistent typography and
+    spacing with other form elements, plus ``mt-3`` for separation between
+    sections (Bootstrap's spacing utilities handle responsive scaling).
+    ``mb-1`` keeps the gap to the control tight.
+
+    CSS: Bootstrap ``form-label mt-3 mb-1``
+
+    """
+    return ui.p({"class": "form-label mt-3 mb-1"}, text)
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +569,7 @@ __all__ = [
     "sidebar_section",
     "group_header",
     "sidebar_text",
+    "sidebar_label",
     # workspace typography
     "workspace_heading",
     # states

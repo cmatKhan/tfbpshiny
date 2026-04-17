@@ -40,34 +40,10 @@ _BINDING_DATASETS = ["callingcards", "harbison"]
 _PERTURBATION_DATASETS = ["hackett", "kemmeren", "hu_reimand"]
 
 # ---------------------------------------------------------------------------
-# Mock DTO data
-# ---------------------------------------------------------------------------
-
-_DTO_ROWS: list[dict] = []
-for _b_db in _BINDING_DATASETS:
-    for _p_db in _PERTURBATION_DATASETS:
-        _n = 40
-        _pvals = _RNG.beta(0.5, 2, _n)
-        for _i in range(_n):
-            _DTO_ROWS.append(
-                {
-                    "binding_id_source": _b_db,
-                    "perturbation_id_source": _p_db,
-                    "dto_empirical_pvalue": float(_pvals[_i]),
-                    "dto_fdr": float(min(_pvals[_i] * 1.5, 1.0)),
-                    "binding_set_size": int(_RNG.integers(50, 500)),
-                    "perturbation_set_size": int(_RNG.integers(200, 2000)),
-                    "binding_sample_id": str(_i),
-                    "pert_sample_id": str(_i),
-                    "time": "standard",
-                }
-            )
-
-_DTO_DF = pd.DataFrame(_DTO_ROWS)
-
-# ---------------------------------------------------------------------------
 # Mock top-N data
 # ---------------------------------------------------------------------------
+
+_MOCK_LOCUS_TAGS = [f"YAL{i:03d}C" for i in range(1, 21)]
 
 _TOP_N_ROWS: list[dict] = []
 for _b_db in _BINDING_DATASETS:
@@ -75,13 +51,17 @@ for _b_db in _BINDING_DATASETS:
         _n_samples = 20
         _center = 0.35 if _b_db == "callingcards" else 0.20
         _ratios = np.clip(_RNG.normal(_center, 0.08, _n_samples), 0.0, 1.0)
+        _n_per_sample = 25
         for _i in range(_n_samples):
+            _ratio = float(_ratios[_i])
             _TOP_N_ROWS.append(
                 {
                     "binding_sample_id": str(_i),
+                    "regulator_locus_tag": _MOCK_LOCUS_TAGS[_i],
                     "perturbation_sample_id": str(_i),
-                    "n": 25,
-                    "responsive_ratio": float(_ratios[_i]),
+                    "n": _n_per_sample,
+                    "n_responsive": int(round(_ratio * _n_per_sample)),
+                    "responsive_ratio": _ratio,
                     "_binding_db": _b_db,
                     "_perturbation_db": _p_db,
                 }
@@ -96,8 +76,6 @@ def _mock_vdb() -> MagicMock:
 
     def _query(sql: str, **params: Any) -> pd.DataFrame:
         sql_l = sql.lower()
-        if "dto_expanded" in sql_l:
-            return _DTO_DF.copy()
         # top-N query: find which binding/perturbation pair is referenced
         for b_db in _BINDING_DATASETS:
             if b_db in sql_l:
@@ -109,12 +87,23 @@ def _mock_vdb() -> MagicMock:
                         ][
                             [
                                 "binding_sample_id",
+                                "regulator_locus_tag",
                                 "perturbation_sample_id",
                                 "n",
+                                "n_responsive",
                                 "responsive_ratio",
                             ]
                         ]
                         return sub.copy()
+        # regulator label lookup
+        if "regulator_locus_tag" in sql_l and "_meta" in sql_l:
+            tags = _MOCK_LOCUS_TAGS
+            return pd.DataFrame(
+                {
+                    "regulator_locus_tag": tags,
+                    "regulator_symbol": [f"SYM{i}" for i in range(len(tags))],
+                }
+            )
         return pd.DataFrame()
 
     vdb.query.side_effect = _query
