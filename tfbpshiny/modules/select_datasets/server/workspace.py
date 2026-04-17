@@ -24,6 +24,7 @@ from tfbpshiny.modules.select_datasets.ui import (
     diagonal_cell_modal_ui,
     off_diagonal_cell_modal_ui,
 )
+from tfbpshiny.utils.profiler import profile_span
 from tfbpshiny.utils.ratelimit import debounce
 from tfbpshiny.utils.vdb_init import HIDDEN_FILTER_FIELDS
 
@@ -38,6 +39,7 @@ def select_datasets_workspace_server(
     dataset_filters: reactive.Value[dict[str, Any]],
     vdb: VirtualDB,
     logger: Logger,
+    profile_logger: Logger,
 ) -> None:
     """Render the sample-count matrix for all active datasets."""
 
@@ -83,12 +85,26 @@ def select_datasets_workspace_server(
             db_filters = filters.get(db_name)
 
             sql, params = regulator_locus_tags_query(db_name, db_filters)
-            reg_df = vdb.query(sql, **params)
+            with profile_span(
+                profile_logger,
+                "vdb.query",
+                module="select_datasets",
+                dataset=db_name,
+                context="_matrix_data",
+            ):
+                reg_df = vdb.query(sql, **params)
             regulators = set(reg_df["regulator_locus_tag"].dropna().astype(str))
             regulator_sets[db_name] = regulators
 
             sql, params = sample_count_query(db_name, db_filters)
-            n_samples = int(vdb.query(sql, **params).iloc[0, 0])
+            with profile_span(
+                profile_logger,
+                "vdb.query",
+                module="select_datasets",
+                dataset=db_name,
+                context="_matrix_data",
+            ):
+                n_samples = int(vdb.query(sql, **params).iloc[0, 0])
 
             diagonal[db_name] = {"regulators": len(regulators), "samples": n_samples}
 
@@ -105,8 +121,22 @@ def select_datasets_workspace_server(
                 sql_b, params_b = sample_count_query(
                     db_b, filters.get(db_b), restrict_to_regulators=common_list
                 )
-                n_a = int(vdb.query(sql_a, **params_a).iloc[0, 0])
-                n_b = int(vdb.query(sql_b, **params_b).iloc[0, 0])
+                with profile_span(
+                    profile_logger,
+                    "vdb.query",
+                    module="select_datasets",
+                    dataset=f"{db_a}x{db_b}",
+                    context="_matrix_data",
+                ):
+                    n_a = int(vdb.query(sql_a, **params_a).iloc[0, 0])
+                with profile_span(
+                    profile_logger,
+                    "vdb.query",
+                    module="select_datasets",
+                    dataset=f"{db_a}x{db_b}",
+                    context="_matrix_data",
+                ):
+                    n_b = int(vdb.query(sql_b, **params_b).iloc[0, 0])
 
                 cross_dataset[(db_a, db_b)] = {
                     "common_regulators": len(common),

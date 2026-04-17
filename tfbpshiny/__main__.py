@@ -38,6 +38,18 @@ def make_parser() -> argparse.ArgumentParser:
         choices=["console", "file"],
         help="Set log handler type",
     )
+    parser.add_argument(
+        "--profile-handler",
+        type=str,
+        default="console",
+        choices=["console", "file"],
+        help="Handler for the profiler logger",
+    )
+    parser.add_argument(
+        "--no-profile",
+        action="store_true",
+        help="Disable the profiler logger entirely",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -78,6 +90,8 @@ def main() -> None:
     # convert to int when configuring the logger
     os.environ["TFBPSHINY_LOG_LEVEL"] = str(log_level.value)
     os.environ["TFBPSHINY_LOG_HANDLER"] = args.log_handler
+    os.environ["TFBPSHINY_PROFILE_HANDLER"] = args.profile_handler
+    os.environ["TFBPSHINY_PROFILE_ENABLED"] = "0" if args.no_profile else "1"
     args.func(args)
 
 

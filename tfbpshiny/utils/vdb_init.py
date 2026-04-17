@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from logging import Logger
 
 import pandas as pd
 from labretriever import VirtualDB
+
+from tfbpshiny.utils.profiler import profile_span
 
 # Metadata fields to suppress from the filter UI, keyed by db_name.
 # Use "*" for fields hidden across all datasets; use the db_name key for
@@ -140,7 +144,9 @@ def _filter_hackett_views(vdb: VirtualDB) -> None:
         )
 
 
-def ensure_hackett_analysis_set(vdb: VirtualDB) -> None:
+def ensure_hackett_analysis_set(
+    vdb: VirtualDB, profile_logger: Logger | None = None
+) -> None:
     """
     Build the ``hackett_analysis_set`` table and permanently filter the ``hackett_meta``
     and ``hackett`` views to include only those samples.
@@ -148,9 +154,12 @@ def ensure_hackett_analysis_set(vdb: VirtualDB) -> None:
     Safe to call multiple times; uses ``CREATE OR REPLACE``.
 
     :param vdb: The application VirtualDB instance.
+    :param profile_logger: Optional profiler logger; timing is skipped when ``None``.
 
     """
-    vdb._conn.execute(_HACKETT_ANALYSIS_SET_SQL)
+    _pl = profile_logger or logging.getLogger("profiler")
+    with profile_span(_pl, "init.hackett_set"):
+        vdb._conn.execute(_HACKETT_ANALYSIS_SET_SQL)
     _filter_hackett_views(vdb)
 
 
@@ -174,7 +183,9 @@ ORDER BY regulator_locus_tag
 """
 
 
-def _build_regulator_display_names(vdb: VirtualDB) -> None:
+def _build_regulator_display_names(
+    vdb: VirtualDB, profile_logger: Logger | None = None
+) -> None:
     """
     Build the ``regulator_display_names`` DuckDB table from all dataset meta views.
 
@@ -184,6 +195,7 @@ def _build_regulator_display_names(vdb: VirtualDB) -> None:
     non-empty symbol different from the tag is present; otherwise it equals the tag.
 
     :param vdb: The application VirtualDB instance.
+    :param profile_logger: Optional profiler logger; timing is skipped when ``None``.
 
     """
     db_names = [
@@ -201,12 +213,15 @@ def _build_regulator_display_names(vdb: VirtualDB) -> None:
         table=_REGULATOR_DISPLAY_NAME_TABLE,
         union_sql=union_sql,
     )
-    vdb._conn.execute(sql)
+    _pl = profile_logger or logging.getLogger("profiler")
+    with profile_span(_pl, "init.regulator_table"):
+        vdb._conn.execute(sql)
 
 
 def get_regulator_display_name(
     vdb: VirtualDB,
     locus_tags: list[str] | None = None,
+    profile_logger: Logger | None = None,
 ) -> pd.DataFrame:
     """
     Return a DataFrame of regulator display names from the pre-built lookup table.
@@ -219,13 +234,22 @@ def get_regulator_display_name(
     :rtype: pandas.DataFrame
 
     """
-    if locus_tags is None:
-        return vdb._conn.execute(f"SELECT * FROM {_REGULATOR_DISPLAY_NAME_TABLE}").df()
-    return vdb._conn.execute(
-        f"SELECT * FROM {_REGULATOR_DISPLAY_NAME_TABLE} "
-        f"WHERE regulator_locus_tag = ANY(?)",
-        [locus_tags],
-    ).df()
+    _pl = profile_logger or logging.getLogger("profiler")
+    with profile_span(
+        _pl,
+        "vdb.execute",
+        dataset=_REGULATOR_DISPLAY_NAME_TABLE,
+        context="get_regulator_display_name",
+    ):
+        if locus_tags is None:
+            return vdb._conn.execute(
+                f"SELECT * FROM {_REGULATOR_DISPLAY_NAME_TABLE}"
+            ).df()
+        return vdb._conn.execute(
+            f"SELECT * FROM {_REGULATOR_DISPLAY_NAME_TABLE} "
+            f"WHERE regulator_locus_tag = ANY(?)",
+            [locus_tags],
+        ).df()
 
 
 @dataclass
@@ -252,19 +276,21 @@ class AppDatasets:
 def initialize_data(
     virtualdb_config: str,
     hf_token: str | None = None,
+    profile_logger: Logger | None = None,
 ) -> tuple[VirtualDB, AppDatasets]:
     """
     Construct the VirtualDB, run one-time setup, and compute app-level dataset metadata.
 
     :param virtualdb_config: Path to the VirtualDB YAML config file.
     :param hf_token: Optional HuggingFace token for private repo access.
+    :param profile_logger: Optional profiler logger for timing instrumentation.
     :returns: Tuple of ``(vdb, app_datasets)``.
     :rtype: tuple[VirtualDB, AppDatasets]
 
     """
     vdb = VirtualDB(virtualdb_config, token=hf_token)
-    ensure_hackett_analysis_set(vdb)
-    _build_regulator_display_names(vdb)
+    ensure_hackett_analysis_set(vdb, profile_logger=profile_logger)
+    _build_regulator_display_names(vdb, profile_logger=profile_logger)
 
     condition_cols: dict[str, list[str]] = {}
     upstream_cols: dict[str, list[str]] = {}

@@ -2,6 +2,8 @@ import logging
 from enum import Enum
 from typing import Literal
 
+_PROFILE_FORMAT = "%(message)s"
+
 
 class LogLevel(Enum):
     DEBUG = logging.DEBUG
@@ -31,34 +33,22 @@ class LogLevel(Enum):
 
 def configure_logger(
     name: str,
-    level: int = logging.DEBUG,  # Use int type hint here
+    level: int = logging.DEBUG,
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handler_type: Literal["console", "file"] = "console",
     log_file: str = "tfbpmodeling.log",
 ) -> logging.Logger:
     """
-    Configures a logger.
+    Configure a logger with a single handler.
 
-    :param name: Name of the logger
-    :type name: str
-    :param level: Logging level, must be one of logging.DEBUG,
-        logging.INFO, logging.WARNING, logging.ERROR
-    :type level: int
-    :param format: Logging format
-    :type format: str
-    :param handler_type: Type of handler, either 'console' or 'file'
-    :type handler_type: Literal["console", "file"]
-    :param log_file: Path to log file, required if handler_type is 'file'.
-        Default is 'tfbpmodeling.log'
-    :type log_file: str
-
-    :return: Configured logger
+    :param name: Logger name.
+    :param level: Logging level (``logging.DEBUG``, ``logging.INFO``, etc.).
+    :param format: Log record format string.
+    :param handler_type: Destination — ``"console"`` or ``"file"``.
+    :param log_file: Path used when ``handler_type="file"``.
+    :returns: Configured logger.
     :rtype: logging.Logger
-
-    :raises ValueError: If any of the parameters have invalid datatypes
-
-    example usage:
-    >>> logger = configure_logger("my_logger", level=logging.INFO)
+    :raises ValueError: If any parameter is invalid.
 
     """
     if not isinstance(name, str):
@@ -69,7 +59,7 @@ def configure_logger(
         raise ValueError("Invalid logging level")
     if not isinstance(format, str):
         raise ValueError("format must be a string")
-    if handler_type not in ["console", "file"]:
+    if handler_type not in ("console", "file"):
         raise ValueError("handler_type must be 'console' or 'file'")
     if handler_type == "file" and not log_file:
         raise ValueError("log_file must be specified for file handler")
@@ -77,22 +67,52 @@ def configure_logger(
     logger = logging.getLogger(name)
     logger.setLevel(level)
 
-    # Remove all handlers associated with the logger object to avoid duplicate logs
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+    # Remove existing handlers to avoid duplicates on re-configuration.
+    for h in logger.handlers[:]:
+        logger.removeHandler(h)
 
     if handler_type == "console":
-        handler = logging.StreamHandler()
-    elif handler_type == "file":
-        if not log_file:
-            raise ValueError("log_file must be specified for file handler")
-        handler = logging.FileHandler(log_file)
+        handler: logging.Handler = logging.StreamHandler()
     else:
-        raise ValueError("Invalid handler_type. Must be 'console' or 'file'.")
+        handler = logging.FileHandler(log_file)
 
     handler.setLevel(level)
-    formatter = logging.Formatter(format)
-    handler.setFormatter(formatter)
+    handler.setFormatter(logging.Formatter(format))
     logger.addHandler(handler)
 
+    return logger
+
+
+def configure_profile_logger(
+    handler_type: Literal["console", "file"] = "console",
+    level: int = logging.DEBUG,
+    log_file: str = "tfbpshiny_profile.log",
+    enabled: bool = True,
+) -> logging.Logger:
+    """
+    Configure and return the ``"profiler"`` logger for timing instrumentation.
+
+    The profiler logger uses a bare ``%(message)s`` format because all
+    structure is embedded in the message by
+    :func:`tfbpshiny.utils.profiler.profile_span`.
+    It never propagates to the root or ``"shiny"`` logger.
+
+    :param handler_type: Destination for profile records — ``"console"`` or ``"file"``.
+    :param level: Log level; ignored (set to ``CRITICAL``) when ``enabled=False``.
+    :param log_file: Path used when ``handler_type="file"``.
+    :param enabled: When ``False``, silences the logger by setting its level
+        to ``CRITICAL``.
+    :returns: Configured ``"profiler"`` logger.
+    :rtype: logging.Logger
+
+    """
+    effective_level = level if enabled else logging.CRITICAL
+    logger = configure_logger(
+        "profiler",
+        level=effective_level,
+        format=_PROFILE_FORMAT,
+        handler_type=handler_type,
+        log_file=log_file,
+    )
+    logger.propagate = False
     return logger

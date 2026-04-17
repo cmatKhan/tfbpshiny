@@ -46,3 +46,24 @@ implementation of some sort will likely be necessary. Would be nice to explore
 other options, including custom implementations of plots using d3 and then creating
 the shiny widget manually. With AI, that might be more achievable (for me at least)
 than it would be otherwise b/c we can give the AI the docs for all three as context.
+
+There is both a general log and profiling log
+
+Both loggers write to stdout/stderr, Docker's awslogs driver captures everything into the shinyapp stream under /tfbpshiny/production. To later separate PROFILE lines from main log lines when parsing:
+
+```{python}
+import pandas as pd
+
+df = pd.read_csv("exported.log", sep="|", header=None, skipinitialspace=True,
+                 names=["marker","timestamp","elapsed_s","op","module","dataset","context"])
+profile = df[df["marker"].str.strip() == "PROFILE"]
+```
+
+
+Or in CloudWatch Logs Insights:
+
+```{raw}
+fields @timestamp, @message
+| filter @message like /^PROFILE/
+| parse @message "PROFILE | * | * | * | * | * | *" as timestamp, elapsed_s, op, module, dataset, context
+```

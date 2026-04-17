@@ -9,7 +9,7 @@ from typing import Any, Literal, cast
 from dotenv import load_dotenv
 from shiny import App, reactive, render, ui
 
-from configure_logger import configure_logger
+from configure_logger import configure_logger, configure_profile_logger
 from tfbpshiny.components import github_badge, nav_button
 from tfbpshiny.modules.binding.server import (
     binding_sidebar_server,
@@ -60,6 +60,14 @@ configure_logger(
     log_file=log_file,
 )
 
+profile_logger = configure_profile_logger(
+    handler_type=cast(
+        Literal["console", "file"],
+        os.getenv("TFBPSHINY_PROFILE_HANDLER", "console"),
+    ),
+    enabled=os.getenv("TFBPSHINY_PROFILE_ENABLED", "1") == "1",
+)
+
 # instantiate the virtualDB and compute app-level dataset metadata
 
 virtualdb_config = os.getenv(
@@ -67,7 +75,9 @@ virtualdb_config = os.getenv(
 )
 hf_token: str | None = os.getenv("HF_TOKEN")
 logger.info(f"Loading VirtualDB with config: {virtualdb_config}")
-vdb, app_datasets = initialize_data(virtualdb_config, hf_token)
+vdb, app_datasets = initialize_data(
+    virtualdb_config, hf_token, profile_logger=profile_logger
+)
 
 app_ui = ui.page_fillable(
     ui.include_css((Path(__file__).parent / "app.css").resolve()),
@@ -121,6 +131,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         dataset_filters=dataset_filters,
         vdb=vdb,
         logger=logger,
+        profile_logger=profile_logger,
     )
 
     corr_type, col_preference = binding_sidebar_server(
@@ -138,6 +149,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         dataset_filters=dataset_filters,
         vdb=vdb,
         logger=logger,
+        profile_logger=profile_logger,
     )
 
     corr_type_p, col_preference_p = perturbation_sidebar_server(
@@ -155,6 +167,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         dataset_filters=dataset_filters,
         vdb=vdb,
         logger=logger,
+        profile_logger=profile_logger,
     )
 
     top_n, effect_threshold, pvalue_threshold, facet_by = comparison_sidebar_server(
@@ -175,6 +188,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         facet_by=facet_by,
         vdb=vdb,
         logger=logger,
+        profile_logger=profile_logger,
     )
 
     # set the active module when a nav button is clicked

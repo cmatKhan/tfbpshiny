@@ -16,6 +16,7 @@ from tfbpshiny.modules.binding.queries import (
     get_measurement_column,
     regulator_scatter_sql,
 )
+from tfbpshiny.utils.profiler import profile_span
 from tfbpshiny.utils.vdb_init import get_regulator_display_name
 
 
@@ -30,6 +31,7 @@ def binding_workspace_server(
     dataset_filters: reactive.Value[dict[str, Any]],
     vdb: VirtualDB,
     logger: Logger,
+    profile_logger: Logger,
 ) -> None:
     """
     Render the binding correlation rows: pairwise distributions
@@ -107,17 +109,24 @@ def binding_workspace_server(
                 logger.debug(
                     f"Correlating {db_a}({col_a}) vs {db_b}({col_b}) ({method})"
                 )
-                result[(db_a, db_b)] = corr_pair_sql(
-                    vdb,
-                    db_a,
-                    col_a,
-                    filters.get(db_a),
-                    db_b,
-                    col_b,
-                    filters.get(db_b),
-                    method,
-                    prefix=f"p{i}_",
-                )
+                with profile_span(
+                    profile_logger,
+                    "vdb.query",
+                    module="binding",
+                    dataset=f"{db_a}x{db_b}",
+                    context="_all_corr_data",
+                ):
+                    result[(db_a, db_b)] = corr_pair_sql(
+                        vdb,
+                        db_a,
+                        col_a,
+                        filters.get(db_a),
+                        db_b,
+                        col_b,
+                        filters.get(db_b),
+                        method,
+                        prefix=f"p{i}_",
+                    )
             except Exception as exc:
                 logger.error(
                     f"Failed to correlate {db_a} vs {db_b}: {exc}", exc_info=True
@@ -249,14 +258,16 @@ def binding_workspace_server(
             "  });"
             "})();"
         )
-        return ui.HTML(
-            to_html(
-                fig,
-                include_plotlyjs="cdn",
-                full_html=False,
-                post_script=post_script,
+        with profile_span(
+            profile_logger,
+            "plot.build",
+            module="binding",
+            context="distributions_plot",
+        ):
+            html = to_html(
+                fig, include_plotlyjs="cdn", full_html=False, post_script=post_script
             )
-        )
+        return ui.HTML(html)
 
     @render.ui
     def regulator_selector() -> ui.Tag:
@@ -385,7 +396,13 @@ def binding_workspace_server(
                     reg,
                     idx,
                 )
-                merged = vdb.query(scatter_sql, **scatter_params)
+                with profile_span(
+                    profile_logger,
+                    "vdb.query",
+                    module="binding",
+                    context="scatter",
+                ):
+                    merged = vdb.query(scatter_sql, **scatter_params)
                 logger.debug(
                     f"scatter {db_a}/{db_b} reg={reg!r} "
                     f"rows={len(merged)} fa={fa!r} fb={fb!r}"
@@ -447,9 +464,16 @@ def binding_workspace_server(
                 width=400,
                 height=400,
             )
+            with profile_span(
+                profile_logger,
+                "plot.build",
+                module="binding",
+                context="regulator_plot",
+            ):
+                plot_html = to_html(fig, include_plotlyjs=False, full_html=False)
             plot_divs.append(
                 ui.div(
-                    ui.HTML(to_html(fig, include_plotlyjs=False, full_html=False)),
+                    ui.HTML(plot_html),
                     style="flex: 0 0 auto;",
                 )
             )

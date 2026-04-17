@@ -20,6 +20,7 @@ from tfbpshiny.modules.comparison.queries import (
     PERTURBATION_LABEL_MAP,
     topn_responsive_ratio,
 )
+from tfbpshiny.utils.profiler import profile_span
 from tfbpshiny.utils.vdb_init import get_regulator_display_name
 
 # color palettes
@@ -70,6 +71,7 @@ def comparison_workspace_server(
     facet_by: Callable[[], str],
     vdb: VirtualDB,
     logger: Logger,
+    profile_logger: Logger,
 ) -> None:
     """Render the Top-N by Binding workspace plot."""
 
@@ -133,19 +135,26 @@ def comparison_workspace_server(
                     p_filters = (
                         None if p_cfg.get("hackett_time_filter") else filters.get(p_db)
                     )
-                    result = topn_responsive_ratio(
-                        vdb=vdb,
-                        binding_view=b_db,
-                        perturbation_view=p_db,
-                        top_n=n,
-                        effect_threshold=eff,
-                        pvalue_threshold=pval,
-                        binding_filters=filters.get(b_db),
-                        perturbation_filters=p_filters,
-                        param_prefix=f"{b_db}_{p_db}",
-                        **b_cfg,
-                        **p_cfg,
-                    )
+                    with profile_span(
+                        profile_logger,
+                        "vdb.query",
+                        module="comparison",
+                        dataset=f"{b_db}x{p_db}",
+                        context="_topn_data",
+                    ):
+                        result = topn_responsive_ratio(
+                            vdb=vdb,
+                            binding_view=b_db,
+                            perturbation_view=p_db,
+                            top_n=n,
+                            effect_threshold=eff,
+                            pvalue_threshold=pval,
+                            binding_filters=filters.get(b_db),
+                            perturbation_filters=p_filters,
+                            param_prefix=f"{b_db}_{p_db}",
+                            **b_cfg,
+                            **p_cfg,
+                        )
                     assert isinstance(result, pd.DataFrame)
                     result["binding_source"] = b_label
                     result["perturbation_source"] = p_label
@@ -162,7 +171,13 @@ def comparison_workspace_server(
 
         if not results:
             return pd.DataFrame()
-        out = pd.concat(results, ignore_index=True)
+        with profile_span(
+            profile_logger,
+            "df.concat",
+            module="comparison",
+            context="_topn_data",
+        ):
+            out = pd.concat(results, ignore_index=True)
         out["percent_responsive"] = out["responsive_ratio"] * 100
         return out
 
@@ -268,7 +283,14 @@ def comparison_workspace_server(
             legend_title=legend_title,
             margin=dict(l=50, r=20, t=80, b=30),
         )
-        return ui.HTML(to_html(fig, include_plotlyjs="cdn", full_html=False))
+        with profile_span(
+            profile_logger,
+            "plot.build",
+            module="comparison",
+            context="topn_plot",
+        ):
+            html = to_html(fig, include_plotlyjs="cdn", full_html=False)
+        return ui.HTML(html)
 
 
 __all__ = ["comparison_workspace_server"]
