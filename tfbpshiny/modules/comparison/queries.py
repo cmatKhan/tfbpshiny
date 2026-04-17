@@ -17,9 +17,6 @@ from tfbpshiny.modules.perturbation.queries import DATASET_COLUMNS
 #: callingcards target locus tags excluded from the top-N analysis (matching R)
 CC_TARGET_BLACKLIST = ("YOR201C", "YOR202W", "YOR203W", "YCL018W", "YEL021W")
 
-#: Hackett regulator symbols excluded from the analysis set
-HACKETT_EXCLUDED_SYMBOLS = ("GCN4", "RDS2", "SWI1", "MAC1")
-
 #: Pseudo-value added before -log10 to avoid log(0)
 DTO_LOG_PSEUDO = 1e-3
 
@@ -31,67 +28,6 @@ DEFAULT_EFFECT_THRESHOLD = 0.0
 
 #: Default p-value threshold (pvalue must be below this to be "responsive")
 DEFAULT_PVALUE_THRESHOLD = 0.05
-
-# ---------------------------------------------------------------------------
-# Hackett analysis-set setup
-# ---------------------------------------------------------------------------
-
-_HACKETT_ANALYSIS_SET_SQL = """
-CREATE OR REPLACE TABLE hackett_analysis_set AS
-WITH regulator_tiers AS (
-    SELECT
-        regulator_locus_tag,
-        CASE
-            WHEN BOOL_OR(mechanism = 'ZEV' AND restriction = 'P') THEN 1
-            WHEN BOOL_OR(mechanism = 'GEV' AND restriction = 'P') THEN 2
-            ELSE 3
-        END AS tier
-    FROM hackett_meta
-    GROUP BY regulator_locus_tag
-),
-tier_filtered AS (
-    SELECT
-        h.sample_id,
-        h.regulator_locus_tag,
-        h.regulator_symbol,
-        h.mechanism,
-        h.restriction,
-        h.time,
-        h.date,
-        h.strain,
-        t.tier
-    FROM hackett_meta h
-    JOIN regulator_tiers t USING (regulator_locus_tag)
-    WHERE
-        (t.tier = 1 AND h.mechanism = 'ZEV' AND h.restriction = 'P')
-        OR (t.tier = 2 AND h.mechanism = 'GEV' AND h.restriction = 'P')
-        OR (t.tier = 3 AND h.mechanism = 'GEV' AND h.restriction = 'M')
-)
-SELECT DISTINCT
-    sample_id,
-    regulator_locus_tag,
-    regulator_symbol,
-    mechanism,
-    restriction,
-    time,
-    date,
-    strain
-FROM tier_filtered
-WHERE regulator_symbol NOT IN ('GCN4', 'RDS2', 'SWI1', 'MAC1')
-"""
-
-
-def ensure_hackett_analysis_set(vdb: VirtualDB) -> None:
-    """
-    Register ``hackett_analysis_set`` as an in-memory DuckDB table if not present.
-
-    Safe to call multiple times; uses ``CREATE OR REPLACE``.
-
-    :param vdb: The application VirtualDB instance.
-
-    """
-    vdb._conn.execute(_HACKETT_ANALYSIS_SET_SQL)
-
 
 # ---------------------------------------------------------------------------
 # DTO query
@@ -136,8 +72,8 @@ def fetch_dto_data(
     """
     Fetch DTO empirical p-value data from ``dto_expanded``.
 
-    Requires ``hackett_analysis_set`` to be registered first via
-    :func:`ensure_hackett_analysis_set`.
+    Requires ``hackett_analysis_set`` to be registered first (done by
+    :func:`tfbpshiny.utils.vdb_init.initialize_data`).
 
     :param vdb: VirtualDB instance.
     :param sql_only: If ``True`` return ``(sql, {})`` instead of executing.

@@ -7,7 +7,7 @@
 		// put the labretriever at the same level as tfbshiny. During development,
 		// it is very useful to have both in your workspace
 		{
-			"path": "../../labretriever",
+			"path": "../../../labretriever",
 			"name": "labretriever (reference)"
 		}
 	],

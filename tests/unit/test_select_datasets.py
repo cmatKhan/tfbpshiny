@@ -9,22 +9,6 @@ from tfbpshiny.modules.select_datasets.queries import (
     regulator_locus_tags_query,
     sample_count_query,
 )
-from tfbpshiny.modules.select_datasets.server.sidebar import _filter_btn_id, _toggle_id
-
-# --- ID generators ---
-
-
-def test_toggle_id_is_stable():
-    assert _toggle_id("harbison") == _toggle_id("harbison")
-
-
-def test_toggle_id_differs_by_dataset():
-    assert _toggle_id("harbison") != _toggle_id("hackett")
-
-
-def test_filter_btn_id_is_stable():
-    assert _filter_btn_id("harbison") == _filter_btn_id("harbison")
-
 
 # --- _build_where ---
 

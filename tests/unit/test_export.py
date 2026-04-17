@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tarfile
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import duckdb
@@ -68,46 +67,18 @@ def test_build_readme_includes_file_explanations():
 # --- get_dataset_description ---
 
 
-def _make_mock_vdb(
-    db_name: str = "harbison",
-    repo_id: str = "BrentLab/repo",
-    config_name: str = "harbison",
-    description: str | None = "A description",
-) -> MagicMock:
-    # Mocks private VirtualDB attrs; update when public API lands (issue #213).
+def test_get_dataset_description_delegates_to_vdb():
+    """get_dataset_description passes through the return value of
+    vdb.get_dataset_description."""
     vdb = MagicMock()
-    vdb._db_name_map = {db_name: (repo_id, config_name)}
-    config = SimpleNamespace(description=description)
-    card = MagicMock()
-    card.get_config.return_value = config
-    vdb._datacards = {repo_id: card}
-    return vdb
-
-
-def test_get_dataset_description_happy_path():
-    vdb = _make_mock_vdb(description="Harbison ChIP-chip data.")
+    vdb.get_dataset_description.return_value = "Harbison ChIP-chip data."
     assert get_dataset_description(vdb, "harbison") == "Harbison ChIP-chip data."
+    vdb.get_dataset_description.assert_called_once_with("harbison")
 
 
-def test_get_dataset_description_no_card():
-    vdb = _make_mock_vdb()
-    vdb._datacards = {}
-    assert get_dataset_description(vdb, "harbison") is None
-
-
-def test_get_dataset_description_no_config():
-    vdb = _make_mock_vdb()
-    vdb._datacards["BrentLab/repo"].get_config.return_value = None
-    assert get_dataset_description(vdb, "harbison") is None
-
-
-def test_get_dataset_description_unknown_db_name():
-    vdb = _make_mock_vdb()
-    assert get_dataset_description(vdb, "nonexistent") is None
-
-
-def test_get_dataset_description_empty_description():
-    vdb = _make_mock_vdb(description="")
+def test_get_dataset_description_returns_none_when_vdb_returns_none():
+    vdb = MagicMock()
+    vdb.get_dataset_description.return_value = None
     assert get_dataset_description(vdb, "harbison") is None
 
 

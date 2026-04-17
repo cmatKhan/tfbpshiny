@@ -20,7 +20,6 @@ from tfbpshiny.modules.comparison.queries import (
     DTO_LOG_PSEUDO,
     PERTURBATION_CONFIGS,
     PERTURBATION_LABEL_MAP,
-    ensure_hackett_analysis_set,
     fetch_dto_data,
     topn_responsive_ratio,
 )
@@ -75,11 +74,6 @@ def comparison_workspace_server(
     logger: Logger,
 ) -> None:
     """Render two workspace rows: DTO ECDF (top) and Top-N boxplot (bottom)."""
-
-    try:
-        ensure_hackett_analysis_set(vdb)
-    except Exception:
-        logger.exception("Could not register hackett_analysis_set")
 
     @reactive.calc
     def _active_binding_labels() -> dict[str, str]:

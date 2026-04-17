@@ -20,12 +20,12 @@ from tfbpshiny.modules.select_datasets.queries import (
     regulator_locus_tags_query,
     sample_count_query,
 )
-from tfbpshiny.modules.select_datasets.server.sidebar import HIDDEN_FILTER_FIELDS
 from tfbpshiny.modules.select_datasets.ui import (
     diagonal_cell_modal_ui,
     off_diagonal_cell_modal_ui,
 )
 from tfbpshiny.utils.ratelimit import debounce
+from tfbpshiny.utils.vdb_init import HIDDEN_FILTER_FIELDS
 
 
 @module.server

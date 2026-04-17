@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from dotenv import load_dotenv
-from labretriever import VirtualDB
 from shiny import App, reactive, render, ui
 
 from configure_logger import configure_logger
@@ -42,6 +41,7 @@ from tfbpshiny.modules.select_datasets.ui import (
     selection_matrix_ui,
     selection_sidebar_ui,
 )
+from tfbpshiny.utils.vdb_init import initialize_data
 
 if not os.getenv("DOCKER_ENV"):
     load_dotenv(dotenv_path=Path(".env"))
@@ -60,14 +60,14 @@ configure_logger(
     log_file=log_file,
 )
 
-# instantiate the virtualDB
+# instantiate the virtualDB and compute app-level dataset metadata
 
 virtualdb_config = os.getenv(
     "VIRTUALDB_CONFIG", str(Path(__file__).parent / "brentlab_yeast_collection.yaml")
 )
 hf_token: str | None = os.getenv("HF_TOKEN")
 logger.info(f"Loading VirtualDB with config: {virtualdb_config}")
-vdb = VirtualDB(virtualdb_config, token=hf_token)
+vdb, app_datasets = initialize_data(virtualdb_config, hf_token)
 
 app_ui = ui.page_fillable(
     ui.include_css((Path(__file__).parent / "app.css").resolve()),
@@ -109,6 +109,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         select_datasets_sidebar_server(
             "select_datasets_sidebar",
             vdb=vdb,
+            app_datasets=app_datasets,
             logger=logger,
             active_module=active_module,
         )

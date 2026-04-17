@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
+from labretriever import ColumnMeta
 from shiny import module, ui
 
 from tfbpshiny.components import workspace_heading, workspace_shell
@@ -29,6 +31,8 @@ def _filter_control(
     db_name: str = "",
     is_common: bool = False,
     union_levels: list[str] | None = None,
+    field_description: str | None = None,
+    ns: Callable[[str], str] = lambda x: x,
 ) -> ui.Tag | None:
     """
     Build a single filter-option card for ``field``.
@@ -40,6 +44,10 @@ def _filter_control(
     "Apply to all datasets" toggle into the card header — a variant that the
     generic component does not support.
 
+    :param field_description: Optional description from the DataCard. When
+        provided, boolean toggles display ``"field (description)"`` as their
+        label; defaults to ``"field (Undefined)"`` when the field is boolean
+        and no description is given.
     :param is_common: When ``True``, appends an "Apply to all datasets" toggle
         inside the card. The toggle is pre-set from ``saved_spec["apply_to_all"]``
         if present, defaulting to ``True``.
@@ -55,7 +63,7 @@ def _filter_control(
     def _apply_to_all_toggle() -> ui.Tag:
         saved_val = saved_spec.get("apply_to_all", False) if saved_spec else False
         return ui.input_switch(
-            f"apply_to_all_{_slugify(field)}",
+            ns(f"apply_to_all_{_slugify(field)}"),
             "Apply to all datasets",
             value=saved_val,
         )
@@ -83,7 +91,7 @@ def _filter_control(
                     _apply_to_all_toggle() if is_common else ui.span(),
                 ),
                 ui.input_selectize(
-                    f"filter_{_slugify(field)}",
+                    ns(f"filter_{_slugify(field)}"),
                     label=None,
                     choices=choices,
                     selected=selected,
@@ -95,6 +103,8 @@ def _filter_control(
 
     if dtype == "bool":
         saved_val = bool(saved_spec["value"]) if saved_spec else False
+        desc = field_description if field_description else "Undefined"
+        switch_label = f"{field} ({desc})"
         return ui.div(
             {"class": "card"},
             ui.div(
@@ -108,7 +118,7 @@ def _filter_control(
                     _apply_to_all_toggle() if is_common else ui.span(),
                 ),
                 ui.input_switch(
-                    f"filter_{_slugify(field)}", label=field, value=saved_val
+                    ns(f"filter_{_slugify(field)}"), label=switch_label, value=saved_val
                 ),
             ),
         )
@@ -136,7 +146,7 @@ def _filter_control(
                     _apply_to_all_toggle() if is_common else ui.span(),
                 ),
                 ui.input_slider(
-                    f"filter_{_slugify(field)}",
+                    ns(f"filter_{_slugify(field)}"),
                     label=None,
                     min=data_min,
                     max=data_max,
@@ -146,6 +156,67 @@ def _filter_control(
         )
 
     return None
+
+
+def _condition_checkbox(
+    field: str,
+    col: pd.Series,
+    saved_spec: dict[str, Any] | None,
+    level_definitions: dict[str, str],
+    is_common: bool = False,
+    ns: Callable[[str], str] = lambda x: x,
+) -> ui.Tag:
+    """
+    Render a checkbox group for a condition column with labelled choices.
+
+    :param field: Display name of the field (used as the card label and input ID).
+    :param col: Series of raw condition level values from the metadata DataFrame.
+    :param saved_spec: Previously saved filter spec for pre-selection.
+    :param level_definitions: Mapping of ``{level_value: description}`` from
+        ``ColumnMeta.level_definitions``.
+    :param is_common: When ``True``, appends an "Apply to all datasets" toggle
+        in the card header. The toggle is pre-set from ``saved_spec["apply_to_all"]``
+        if present, defaulting to ``True``.
+    :param ns: Namespace function applied to all input IDs.
+
+    """
+    counts = col.dropna().astype(str).value_counts()
+    all_levels = counts.index.tolist()
+    choices = {
+        v: f"{level_definitions[v]} ({v})" if level_definitions.get(v) else v
+        for v in all_levels
+    }
+    selected = saved_spec["value"] if saved_spec else []
+    apply_to_all: ui.Tag
+    if is_common:
+        saved_val = saved_spec.get("apply_to_all", True) if saved_spec else True
+        apply_to_all = ui.input_switch(
+            ns(f"apply_to_all_{_slugify(field)}"),
+            "Apply to all datasets",
+            value=saved_val,
+        )
+    else:
+        apply_to_all = ui.span()
+    return ui.div(
+        {"class": "card"},
+        ui.div(
+            {"class": "card-body p-2"},
+            ui.div(
+                {
+                    "class": "d-flex align-items-center "
+                    "justify-content-between gap-2 mb-2"
+                },
+                ui.span({"class": "fw-bold small"}, field),
+                apply_to_all,
+            ),
+            ui.input_checkbox_group(
+                ns(f"filter_{_slugify(field)}"),
+                label=None,
+                choices=choices,
+                selected=selected,
+            ),
+        ),
+    )
 
 
 def _section_heading(label: str) -> ui.Tag:
@@ -167,6 +238,8 @@ def dataset_filter_modal_ui(
     common_field_levels: dict[str, list[str]] | None = None,
     hidden_fields: set[str] | None = None,
     regulator_display_labels: dict[str, str] | None = None,
+    col_meta: dict[str, ColumnMeta] | None = None,
+    ns: Callable[[str], str] = lambda x: x,
 ) -> ui.Tag:
     """
     Build the filter modal for a given dataset from live metadata.
@@ -175,6 +248,11 @@ def dataset_filter_modal_ui(
     left column; dataset-specific characteristics are shown in the right column. An
     "Apply to all datasets" toggle controls whether common-characteristic changes
     propagate to every dataset or only to this one.
+
+    Columns whose ``ColumnMeta.role`` is ``"experimental_condition"`` and that have
+    ``level_definitions`` are rendered as labelled checkbox groups via
+    ``_condition_checkbox``. All other filterable columns use ``_filter_control``,
+    which uses the column's ``ColumnMeta.description`` for boolean toggle labels.
 
     :param db_name: Internal dataset key (used for filter IDs).
     :param df: Metadata DataFrame from ``vdb.query(metadata_query(db_name, ...))``.
@@ -190,12 +268,19 @@ def dataset_filter_modal_ui(
     :param regulator_display_labels: Maps ``locus_tag`` to ``"SYMBOL (LOCUS_TAG)"``
         display strings. When provided, a Regulator card is prepended to the Common
         Characteristics column with a combined searchable selectize.
+    :param col_meta: Per-column metadata from ``VirtualDB.get_column_metadata``.
+        Used to identify condition columns (for checkbox rendering) and to supply
+        descriptions for boolean toggle labels.
+    :param ns: Namespace function applied to all input IDs in the modal. Pass
+        ``session.ns`` from the calling module server so inputs are registered
+        under the correct module scope.
 
     """
     saved = saved_filters or {}
     cf = (common_fields or set()) - {"sample_id"}
     cfl = common_field_levels or {}
     title = display_name or db_name
+    _meta = col_meta or {}
 
     common_cards: list[ui.Tag] = []
     specific_cards: list[ui.Tag] = []
@@ -207,14 +292,33 @@ def dataset_filter_modal_ui(
         if field in _hidden:
             continue
         is_common = field in cf
-        card = _filter_control(
-            field,
-            df[field],
-            saved.get(field),
-            db_name,
-            is_common=is_common,
-            union_levels=cfl.get(field) if is_common else None,
-        )
+        meta = _meta.get(field)
+        # Experimental condition columns with per-level definitions → checkbox group.
+        card: ui.Tag | None
+        if (
+            meta is not None
+            and meta.role == "experimental_condition"
+            and meta.level_definitions is not None
+        ):
+            card = _condition_checkbox(
+                field,
+                df[field],
+                saved.get(field),
+                meta.level_definitions,
+                is_common=is_common,
+                ns=ns,
+            )
+        else:
+            card = _filter_control(
+                field,
+                df[field],
+                saved.get(field),
+                db_name,
+                is_common=is_common,
+                union_levels=cfl.get(field) if is_common else None,
+                field_description=meta.description if meta else None,
+                ns=ns,
+            )
         if card is None:
             continue
         if is_common:
@@ -264,7 +368,7 @@ def dataset_filter_modal_ui(
                             "cell in the matrix.",
                         ),
                         ui.input_selectize(
-                            "filter_regulator_locus_tag",
+                            ns("filter_regulator_locus_tag"),
                             label=None,
                             choices=restricted_choices,
                             selected=[],
@@ -289,19 +393,19 @@ def dataset_filter_modal_ui(
                             ui.div(
                                 {"class": "d-flex align-items-center gap-2"},
                                 ui.input_action_button(
-                                    "modal_clear_regulator_filter",
+                                    ns("modal_clear_regulator_filter"),
                                     "Clear",
                                     class_="btn btn-sm btn-outline-secondary",
                                 ),
                                 ui.input_switch(
-                                    "apply_to_all_regulator_locus_tag",
+                                    ns("apply_to_all_regulator_locus_tag"),
                                     "Apply to all datasets",
                                     value=apply_to_all_reg,
                                 ),
                             ),
                         ),
                         ui.input_selectize(
-                            "filter_regulator_locus_tag",
+                            ns("filter_regulator_locus_tag"),
                             label=None,
                             choices=regulator_display_labels,
                             selected=selected_reg,
@@ -373,12 +477,12 @@ def dataset_filter_modal_ui(
         easy_close=True,
         footer=ui.div(
             ui.input_action_button(
-                "modal_reset_filters",
+                ns("modal_reset_filters"),
                 "Reset",
                 class_="btn btn-sm btn-outline-secondary",
             ),
             ui.input_action_button(
-                "modal_apply_filters",
+                ns("modal_apply_filters"),
                 "Apply Filters",
                 class_="btn btn-sm btn-primary",
             ),

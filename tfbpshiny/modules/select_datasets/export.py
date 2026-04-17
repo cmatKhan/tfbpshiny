@@ -85,31 +85,12 @@ def get_dataset_description(vdb: VirtualDB, db_name: str) -> str | None:
     """
     Retrieve the DataCard config description for a dataset.
 
-    Uses private VirtualDB attributes; returns ``None`` on any failure.
-
-    .. todo:: Replace with public VirtualDB API when available (issue #213).
-
     :param vdb: VirtualDB instance.
     :param db_name: Dataset name.
     :returns: Description string or ``None``.
 
     """
-    try:
-        repo_id, config_name = vdb._db_name_map[db_name]
-        card = vdb._datacards.get(repo_id)
-        if card is None:
-            return None
-        config = card.get_config(config_name)
-        if config is None:
-            return None
-        return config.description or None
-    except Exception:
-        logger.warning(
-            "Failed to retrieve DataCard description for %s (private API)",
-            db_name,
-            exc_info=True,
-        )
-        return None
+    return vdb.get_dataset_description(db_name)
 
 
 def _query_to_csv_bytes(
