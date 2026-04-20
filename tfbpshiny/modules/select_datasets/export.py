@@ -140,9 +140,13 @@ def build_export_tarball(
     :func:`_query_to_csv_bytes` so only one dataset's data is in memory at
     once.
 
-    Uses ``tarfile`` pipe mode (``w|gz``) for streaming writes into an
-    in-memory ``BytesIO`` buffer — no temp files on disk.  The full buffer
-    is returned to the caller for chunked yielding.
+    Uses ``tarfile`` non-pipe mode (``w:gz``) with a seekable in-memory
+    ``BytesIO`` buffer — no temp files on disk.  The full buffer is returned
+    to the caller for chunked yielding.  Gzip compression is pinned to
+    ``compresslevel=1`` to favour export speed over archive size; the
+    absolute speedup and size penalty depend on the dataset mix (see
+    issue #242).  ``compresslevel`` is not accepted in pipe mode (``w|gz``),
+    which is why non-pipe mode is used here.
 
     A thread-safe DuckDB cursor is created via ``vdb._conn.cursor()`` so
     this function can safely run in a worker thread while the main event
@@ -161,7 +165,7 @@ def build_export_tarball(
 
     out = io.BytesIO()
     try:
-        with tarfile.open(mode="w|gz", fileobj=out) as tar:
+        with tarfile.open(mode="w:gz", fileobj=out, compresslevel=1) as tar:
             for ds in datasets:
                 dir_name = _safe_dir_name(ds.display_name)
 
