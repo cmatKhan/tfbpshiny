@@ -28,6 +28,7 @@ from tfbpshiny.modules.perturbation.ui import (
     perturbation_sidebar_ui,
     perturbation_workspace_ui,
 )
+from tfbpshiny.utils.vdb_init import AppDatasets
 
 logger = logging.getLogger("shiny")
 
@@ -165,6 +166,7 @@ def server(input: Any, output: Any, session: Any) -> None:
         col_preference=col_preference,
         dataset_filters=_dataset_filters,
         vdb=vdb,
+        app_datasets=AppDatasets(condition_cols={}, upstream_cols={}),
         logger=logger,
     )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable
+from html import escape
 from logging import Logger
 from typing import Any, Literal
 
@@ -16,7 +17,8 @@ from tfbpshiny.modules.perturbation.queries import (
     get_measurement_column,
     regulator_scatter_sql,
 )
-from tfbpshiny.utils.vdb_init import get_regulator_display_name
+from tfbpshiny.utils.sample_conditions import fetch_sample_condition_map
+from tfbpshiny.utils.vdb_init import AppDatasets, get_regulator_display_name
 
 
 @module.server
@@ -29,6 +31,7 @@ def perturbation_workspace_server(
     col_preference: Callable[[], str],
     dataset_filters: reactive.Value[dict[str, Any]],
     vdb: VirtualDB,
+    app_datasets: AppDatasets,
     logger: Logger,
 ) -> None:
     """
@@ -45,6 +48,35 @@ def perturbation_workspace_server(
     sym_map: dict[str, str] = dict(
         zip(_reg_df["regulator_locus_tag"], _reg_df["display_name"])
     )
+
+    @reactive.calc
+    def _condition_maps() -> dict[str, dict[str, str]]:
+        """
+        ``{db_name: {sample_id: label}}`` for each active dataset that has
+        experimental_condition columns.
+
+        Used to annotate tooltips on the selected-regulator overlay in the
+        distribution plot so the user can distinguish multiple samples of the
+        same regulator. Datasets without ``condition_cols`` are omitted from
+        the outer dict, causing the tooltip to skip their side.
+
+        :trigger active_perturbation_datasets: re-runs when the user toggles
+            a perturbation dataset on or off.
+        :returns: Outer dict keyed by db_name; inner dict maps sample_id to
+            the joined condition label.
+
+        """
+        out: dict[str, dict[str, str]] = {}
+        for db in active_perturbation_datasets():
+            cols = app_datasets.condition_cols.get(db, [])
+            if not cols:
+                continue
+            try:
+                out[db] = fetch_sample_condition_map(vdb, db, cols)
+            except Exception:
+                logger.exception("Failed to fetch condition map for %s", db)
+                out[db] = {}
+        return out
 
     @reactive.calc
     def _pairs() -> list[tuple[str, str]]:
@@ -167,6 +199,8 @@ def perturbation_workspace_server(
         except Exception:
             selected_reg = ""
 
+        cond_maps = _condition_maps()
+
         # Build a single combined box trace using x as the category axis.
         # Each point's x value is the pair label; Plotly groups points under
         # each category and draws one box per unique x value.
@@ -183,10 +217,15 @@ def perturbation_workspace_server(
             label_a = display_names.get(db_a, db_a)
             label_b = display_names.get(db_b, db_b)
             pair_label = f"{label_a}<br>vs<br>{label_b}"
+            cond_a = cond_maps.get(db_a, {})
+            cond_b = cond_maps.get(db_b, {})
             if not df.empty:
                 df_clean = df.dropna(subset=["correlation"])
-                for tag, corr in zip(
-                    df_clean["regulator_locus_tag"], df_clean["correlation"]
+                for tag, corr, sample_a, sample_b in zip(
+                    df_clean["regulator_locus_tag"],
+                    df_clean["correlation"],
+                    df_clean["db_a_id"],
+                    df_clean["db_b_id"],
                 ):
                     display = sym_map.get(tag, tag)
                     all_x.append(pair_label)
@@ -196,7 +235,24 @@ def perturbation_workspace_server(
                     if tag == selected_reg:
                         sel_x.append(pair_label)
                         sel_y.append(corr)
-                        sel_hover.append(display)
+                        # Per-dot hover: regulator + r + one condition line per
+                        # dataset that has a non-empty label for this sample.
+                        # All DB-sourced strings are HTML-escaped before being
+                        # joined with the <br> separators because Plotly renders
+                        # hovertext as HTML (stored-XSS sink if any researcher-
+                        # uploaded metadata ever contained markup).
+                        hover_lines = [escape(display), f"r = {corr:.3f}"]
+                        label_sample_a = cond_a.get(str(sample_a), "")
+                        if label_sample_a:
+                            hover_lines.append(
+                                f"{escape(label_a)}: {escape(label_sample_a)}"
+                            )
+                        label_sample_b = cond_b.get(str(sample_b), "")
+                        if label_sample_b:
+                            hover_lines.append(
+                                f"{escape(label_b)}: {escape(label_sample_b)}"
+                            )
+                        sel_hover.append("<br>".join(hover_lines))
                         sel_tags.append(tag)
 
         fig.add_trace(
@@ -222,9 +278,9 @@ def perturbation_workspace_server(
                     x=sel_x,
                     y=sel_y,
                     mode="markers",
-                    text=sel_hover,
+                    hovertext=sel_hover,
                     customdata=sel_tags,
-                    hovertemplate="%{text}<br>r = %{y:.3f}<extra></extra>",
+                    hovertemplate="%{hovertext}<extra></extra>",
                     marker=dict(size=10, color="black", symbol="circle"),
                     showlegend=False,
                 )

@@ -137,6 +137,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         col_preference=col_preference,
         dataset_filters=dataset_filters,
         vdb=vdb,
+        app_datasets=app_datasets,
         logger=logger,
     )
 
@@ -154,6 +155,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
         col_preference=col_preference_p,
         dataset_filters=dataset_filters,
         vdb=vdb,
+        app_datasets=app_datasets,
         logger=logger,
     )
 
