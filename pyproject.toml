@@ -9,7 +9,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 # use `rev` to pin to a specific hash, or tag, from the git repo
-labretriever = {git = "https://github.com/cmatKhan/labretriever.git", rev = "72bbf3b"}
+labretriever = {git = "https://github.com/cmatKhan/labretriever.git", rev = "ecaa7e3"}
 shiny = "^1.4.0"
 shinywidgets = "^0.7.1"
 upsetjs-jupyter-widget = "^1.9.0"
