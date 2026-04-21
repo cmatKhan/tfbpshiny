@@ -17,7 +17,6 @@ from tfbpshiny.modules.perturbation.queries import (
     get_measurement_column,
     regulator_scatter_sql,
 )
-
 from tfbpshiny.utils.profiler import profile_span
 from tfbpshiny.utils.sample_conditions import fetch_sample_condition_map
 from tfbpshiny.utils.vdb_init import AppDatasets, get_regulator_display_name
