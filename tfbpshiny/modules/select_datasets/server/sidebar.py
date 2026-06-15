@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from logging import Logger
 from typing import Any
 
 import pandas as pd
 from labretriever import ColumnMeta, VirtualDB
-from shiny import reactive, render, ui
+from shiny import reactive, render, req, ui
 from shiny.types import SilentException
 
 from tfbpshiny.modules.select_datasets.queries import (
@@ -69,6 +70,7 @@ def select_datasets_sidebar_server(
     logger: Logger,
     active_tab: reactive.Calc_[str] | None = None,
     pending_regulator_pair: reactive.Value[dict[str, Any] | None] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> tuple[
     reactive.Calc_[list[str]],
     reactive.Calc_[list[str]],
@@ -222,6 +224,10 @@ def select_datasets_sidebar_server(
             re-runs whenever the active dataset list changes.
 
         """
+        # Gate vdb access until background materialization finishes; the DuckDB
+        # connection is not safe to touch while materialization mutates it.
+        if materialize_ready is not None:
+            req(materialize_ready())
         all_active = _active_binding_datasets() + _active_perturbation_datasets()
         result: dict[str, pd.DataFrame] = {}
         for db in all_active:

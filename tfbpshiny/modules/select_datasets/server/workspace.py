@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from logging import Logger
 from typing import Any
 
@@ -42,6 +43,7 @@ def select_datasets_workspace_server(
     vdb: VirtualDB,
     logger: Logger,
     active_tab: reactive.Value[str] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> None:
     """Render the sample-count matrix for all active datasets."""
 
@@ -116,6 +118,10 @@ def select_datasets_workspace_server(
             {"common_regulators": int, "samples_a": int, "samples_b": int}}``.
 
         """
+        # Gate vdb access until background materialization finishes; the DuckDB
+        # connection is not safe to touch while materialization mutates it.
+        if materialize_ready is not None:
+            req(materialize_ready())
         with perf(session.id, "select_datasets.workspace", "_matrix_data"):
             active = _settled_val()
             filters = dataset_filters()
@@ -211,6 +217,8 @@ def select_datasets_workspace_server(
                 diagonal matrix cell button for this dataset.
 
             """
+            if materialize_ready is not None:
+                req(materialize_ready())
             with perf(session.id, "select_datasets.workspace", "diagonal._on_click"):
                 filters = dataset_filters().get(db_name)
 
@@ -309,6 +317,8 @@ def select_datasets_workspace_server(
             clicks the "Select common regulators" button in the off-diagonal modal.
 
         """
+        if materialize_ready is not None:
+            req(materialize_ready())
         with perf(
             session.id,
             "select_datasets.workspace",

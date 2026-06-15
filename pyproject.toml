@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tfbpshiny"
-version = "1.0.0"
+version = "1.1.0"
 description = "A shiny app which provides a dashboard to https://huggingface.co/collections/BrentLab/yeastresources"
 authors = ["chasem <chasem@wustl.edu>"]
 license = "GPL-3.0"

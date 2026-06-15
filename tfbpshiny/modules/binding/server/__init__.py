@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from logging import Logger
 from typing import Any
 
@@ -21,6 +22,7 @@ def binding_server(
     app_datasets: AppDatasets,
     logger: Logger,
     active_tab: reactive.Calc_[str] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> None:
     """Combined sidebar + workspace server for the Binding module."""
     binding_workspace_server(
@@ -33,6 +35,7 @@ def binding_server(
         app_datasets=app_datasets,
         logger=logger,
         active_tab=active_tab,
+        materialize_ready=materialize_ready,
     )
 
 

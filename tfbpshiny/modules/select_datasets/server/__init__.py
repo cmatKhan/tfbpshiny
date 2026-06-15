@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from logging import Logger
 from typing import Any
 
@@ -24,6 +25,7 @@ def select_datasets_server(
     app_datasets: AppDatasets,
     logger: Logger,
     active_tab: reactive.Calc_[str] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> tuple[
     reactive.Calc_[list[str]],
     reactive.Calc_[list[str]],
@@ -48,6 +50,7 @@ def select_datasets_server(
             logger=logger,
             active_tab=active_tab,
             pending_regulator_pair=_pending_regulator_pair,
+            materialize_ready=materialize_ready,
         )
     )
     select_datasets_workspace_server(
@@ -61,6 +64,7 @@ def select_datasets_server(
         vdb=vdb,
         logger=logger,
         active_tab=active_tab,
+        materialize_ready=materialize_ready,
     )
     return active_binding_datasets, active_perturbation_datasets, dataset_filters
 

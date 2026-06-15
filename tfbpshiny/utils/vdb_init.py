@@ -302,6 +302,7 @@ def initialize_data(
     virtualdb_config: str,
     hf_token: str | None = None,
     local_files_only: bool = True,
+    defer_materialize: bool = False,
 ) -> tuple[VirtualDB, AppDatasets]:
     """
     Construct the VirtualDB, run one-time setup, and compute app-level dataset metadata.
@@ -312,6 +313,11 @@ def initialize_data(
         and uses only locally cached files. Eliminates 11 sequential ``repo_info`` HTTP
         round-trips on every startup. Defaults to ``True``; pass ``False`` only when
         populating the cache for the first time (``tfbpshiny initialize``).
+    :param defer_materialize: When ``True``, skip the expensive
+        ``materialize_comparison_views`` step so the app can become interactive
+        quickly; the caller must run materialization separately (e.g. in a background
+        task) before relying on the in-RAM views. Defaults to ``False``, which
+        materializes synchronously as before.
     :returns: Tuple of ``(vdb, app_datasets)``.
     :rtype: tuple[VirtualDB, AppDatasets]
 
@@ -366,15 +372,20 @@ def initialize_data(
 
     # Materialize the analysis data views into RAM so per-query parquet scans
     # (the dominant Comparison cost, especially on slow disk) hit memory instead.
-    # Imported locally to keep the module import graph flat.
-    from tfbpshiny.utils.vdb_materialize import materialize_comparison_views
+    # When deferred, the caller runs this off the critical path (background task) so the
+    # app becomes interactive without waiting on the ~22-48s materialization.
+    if not defer_materialize:
+        # Imported locally to keep the module import graph flat.
+        from tfbpshiny.utils.vdb_materialize import materialize_comparison_views
 
-    t = time.monotonic()
-    materialize_comparison_views(vdb)
-    logger.debug(
-        "initialize_data: materialize_comparison_views completed in %.3fs",
-        time.monotonic() - t,
-    )
+        t = time.monotonic()
+        materialize_comparison_views(vdb)
+        logger.debug(
+            "initialize_data: materialize_comparison_views completed in %.3fs",
+            time.monotonic() - t,
+        )
+    else:
+        logger.debug("initialize_data: materialize_comparison_views deferred")
 
     logger.debug("initialize_data: total %.3fs", time.monotonic() - _t0)
     return vdb, AppDatasets(condition_cols=condition_cols, upstream_cols=upstream_cols)

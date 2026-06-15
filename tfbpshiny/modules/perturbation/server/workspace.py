@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+from collections.abc import Callable
 from logging import Logger
 from typing import Any, Literal
 
@@ -40,6 +41,7 @@ def perturbation_workspace_server(
     app_datasets: AppDatasets,
     logger: Logger,
     active_tab: reactive.Calc_[str] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> None:
     """
     Render the perturbation correlation workspace: correlation matrix, pair
@@ -240,6 +242,10 @@ def perturbation_workspace_server(
         :trigger input.execute_analysis: fires when Execute Analysis is clicked.
 
         """
+        # Gate vdb access until background materialization finishes; the DuckDB
+        # connection is not safe to touch while materialization mutates it.
+        if materialize_ready is not None:
+            req(materialize_ready())
         with perf(session.id, "perturbation.workspace", "_on_execute"):
             pairs = _active_pairs()
             method = input.corr_type()
@@ -1079,6 +1085,10 @@ def perturbation_workspace_server(
 
             """
             with perf(session.id, "perturbation.workspace", f"scatter_{db_a}__{db_b}"):
+                # Gate vdb access until background materialization finishes (also
+                # guaranteed transitively via _run_analysis below, but explicit here).
+                if materialize_ready is not None:
+                    req(materialize_ready())
                 # Capture epoch without creating a reactive dep on _scatter_epoch.
                 with reactive.isolate():
                     my_epoch = _scatter_epoch()

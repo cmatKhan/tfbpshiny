@@ -60,11 +60,6 @@ def _feature_card(
 def home_ui() -> ui.Tag:
     return ui.div(
         {"class": "p-4"},
-        ui.div(
-            {"class": "alert alert-warning", "role": "alert"},
-            ui.strong("Under development: "),
-            "excuse the mess. Projected release: April, 2026.",
-        ),
         ui.h2("Welcome to the TF Binding and Perturbation Explorer"),
         ui.p(
             "Explore datasets of transcription factor (TF) binding and gene "

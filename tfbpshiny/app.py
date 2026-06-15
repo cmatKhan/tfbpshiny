@@ -128,6 +128,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
                 app_datasets=app_datasets,
                 logger=logger,
                 active_tab=_active_tab,
+                materialize_ready=materialize_ready,
             )
         )
 
@@ -139,6 +140,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
             app_datasets=app_datasets,
             logger=logger,
             active_tab=_active_tab,
+            materialize_ready=materialize_ready,
         )
 
         perturbation_server(
@@ -149,6 +151,7 @@ def app_server(input: Any, output: Any, session: Any) -> None:
             app_datasets=app_datasets,
             logger=logger,
             active_tab=_active_tab,
+            materialize_ready=materialize_ready,
         )
 
         comparison_server(
@@ -159,11 +162,27 @@ def app_server(input: Any, output: Any, session: Any) -> None:
             vdb=vdb,
             logger=logger,
             active_tab=_active_tab,
+            materialize_ready=materialize_ready,
         )
+
+        # Start background materialization only after every module server has been
+        # registered. Registration runs synchronously here and performs the only
+        # registration-time DuckDB reads (e.g. get_regulator_display_name); invoking
+        # the task last guarantees those reads complete before the materialize thread
+        # touches the (non-thread-safe) connection.
+        if not _materialize_started["done"]:
+            _materialize_started["done"] = True
+            _materialize_task.invoke(vdb)
 
     @extended_task
     async def _init_task(config: str, token: str | None) -> Any:
-        """Run VirtualDB initialization off the main thread."""
+        """
+        Run the fast VirtualDB initialization off the main thread.
+
+        Materialization is deferred to ``_materialize_task`` so the app becomes
+        interactive without waiting on the ~22-48s in-RAM copy of the data views.
+
+        """
         missing = await asyncio.to_thread(check_local_cache, config)
         if missing:
             raise RuntimeError(
@@ -171,15 +190,49 @@ def app_server(input: Any, output: Any, session: Any) -> None:
                 "an issue at https://github.com/BrentLab/tfbpshiny/issues. "
                 f"Missing repos: {missing}"
             )
-        return await asyncio.to_thread(initialize_data, config, token)
+        return await asyncio.to_thread(
+            initialize_data, config, token, defer_materialize=True
+        )
+
+    @extended_task
+    async def _materialize_task(vdb: Any) -> bool:
+        """
+        Materialize the comparison data views into RAM off the main thread.
+
+        Runs after the fast init completes. While it is running, every reactive
+        that queries ``vdb`` is gated behind :func:`materialize_ready`, so this task
+        is the sole user of the (non-thread-safe) DuckDB connection during the window.
+
+        """
+        from tfbpshiny.utils.vdb_materialize import materialize_comparison_views
+
+        await asyncio.to_thread(materialize_comparison_views, vdb)
+        return True
+
+    def materialize_ready() -> bool:
+        """Reactive predicate: True once background materialization has finished."""
+        return _materialize_task.status() == "success"
+
+    # Tracks whether background materialization has been kicked off (once per
+    # session). Set inside _register_modules after all servers are registered.
+    _materialize_started: dict[str, bool] = {"done": False}
 
     # Auto-start init on session load — no button required.
     _init_task.invoke(virtualdb_config, hf_token)
 
     _preparing_ui = ui.div(
         {"class": "pending-banner"},
-        "Datasets loading. This typically takes less than 5 seconds. "
+        "Loading datasets. This can take up to ~10 seconds on a cold start. "
         "Thank you for your patience.",
+    )
+
+    # Shown on data-querying tabs after fast init while the background
+    # materialization runs. Queries are gated until it completes, so this banner
+    # tells the user the tab will unlock automatically.
+    _optimizing_ui = ui.div(
+        {"class": "pending-banner"},
+        "Optimizing analysis data for faster queries. This can take up to ~50 seconds "
+        "on a cold start; analysis tools unlock automatically when it completes.",
     )
 
     def _status_panel(ready_content: ui.Tag | None = None) -> ui.Tag:
@@ -202,27 +255,26 @@ def app_server(input: Any, output: Any, session: Any) -> None:
 
     @render.ui
     def selection_status() -> ui.Tag:
+        if _init_task.status() == "success" and not materialize_ready():
+            return _optimizing_ui
         return _status_panel()
 
     @render.ui
     def binding_status() -> ui.Tag:
-        status = _init_task.status()
-        if status == "success":
-            return ui.span()
+        if _init_task.status() == "success":
+            return _optimizing_ui if not materialize_ready() else ui.span()
         return _status_panel(_not_ready_ui)
 
     @render.ui
     def perturbation_status() -> ui.Tag:
-        status = _init_task.status()
-        if status == "success":
-            return ui.span()
+        if _init_task.status() == "success":
+            return _optimizing_ui if not materialize_ready() else ui.span()
         return _status_panel(_not_ready_ui)
 
     @render.ui
     def comparison_status() -> ui.Tag:
-        status = _init_task.status()
-        if status == "success":
-            return ui.span()
+        if _init_task.status() == "success":
+            return _optimizing_ui if not materialize_ready() else ui.span()
         return _status_panel(_not_ready_ui)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from logging import Logger
 from typing import Any
 
@@ -20,6 +21,7 @@ def comparison_server(
     vdb: VirtualDB,
     logger: Logger,
     active_tab: reactive.Calc_[str] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> None:
     """Combined sidebar + workspace server for the Comparison module."""
     comparison_workspace_server(
@@ -32,6 +34,7 @@ def comparison_server(
         vdb=vdb,
         logger=logger,
         active_tab=active_tab,
+        materialize_ready=materialize_ready,
     )
 
 

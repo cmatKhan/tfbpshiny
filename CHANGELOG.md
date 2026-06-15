@@ -7,6 +7,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.1.0] - 2026-06-15
+
+### Changed
+
+- Deferred the startup data materialization to a background task so the app becomes
+  interactive in a few seconds instead of blocking ~30-57s on every cold start.
+  Data-querying tabs show an "optimizing" banner and unlock automatically once the
+  background materialization completes; queries are gated until then to keep the
+  shared DuckDB connection single-threaded.
+- Made startup loading banners report accurate cold-start times (up to ~10s for
+  initial load, up to ~50s for the background optimization step).
+- Moved production (EC2/Docker) and shinyapps.io deployment instructions out of the
+  README into `docs/development.md`; the default log level is now `WARNING`.
+
+### Removed
+
+- "Under development" banner from the Home page.
+
+### Fixed
+
+- Diagonal cell sample count in the dataset matrix now reports the total row count
+  rather than the distinct sample count.
+- Corrected the end-to-end navigation test selectors to match the current UI.
+- Packaging fix so `configure_logger` resolves when installed from PyPI/GitHub.
+
+---
+
 ## [1.0.0] - 2026-06-12
 
 ### Added

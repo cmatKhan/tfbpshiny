@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from logging import Logger
 from typing import Any
 
@@ -11,7 +12,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from labretriever import VirtualDB
 from plotly.io import to_html
-from shiny import reactive, render, ui
+from shiny import reactive, render, req, ui
 from shiny.reactive import extended_task
 from shiny.ui import bind_task_button, input_task_button  # noqa: F401
 
@@ -284,6 +285,7 @@ def comparison_workspace_server(
     vdb: VirtualDB,
     logger: Logger,
     active_tab: reactive.Calc_[str] | None = None,
+    materialize_ready: Callable[[], bool] | None = None,
 ) -> None:
     """Render the Comparison workspace: Compare Datasets, Promoters, Methods."""
 
@@ -654,6 +656,10 @@ def comparison_workspace_server(
         :trigger input.execute_analysis: fires when Execute Analysis is clicked.
 
         """
+        # Gate vdb access until background materialization finishes; the DuckDB
+        # connection is not safe to touch while materialization mutates it.
+        if materialize_ready is not None:
+            req(materialize_ready())
         tab = _inner_tab()
         top_n = input.top_n()
         try:
