@@ -32,6 +32,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Corrected the end-to-end navigation test selectors to match the current UI.
 - Packaging fix so `configure_logger` resolves when installed from PyPI/GitHub.
 
+### Updated
+
+- labretriever updated to 1.1.3, which is on bioconda.
+
 ---
 
 ## [1.0.0] - 2026-06-12
