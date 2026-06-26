@@ -157,6 +157,10 @@ def make_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    from tfbpshiny.materialize.cli import register_subparser as _register_materialize
+
+    _register_materialize(subparsers)
+
     launch_parser = subparsers.add_parser(
         "launch",
         help="Download the dataset cache (first run) and start the Shiny app.",
