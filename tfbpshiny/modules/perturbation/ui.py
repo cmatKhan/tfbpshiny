@@ -13,11 +13,10 @@ def perturbation_ui() -> ui.Tag:
         ui.sidebar(
             ui.h2("Perturbation"),
             ui.output_ui("execute_pending_style"),
-            ui.input_task_button(
+            ui.input_action_button(
                 "execute_analysis",
                 "Execute Analysis",
-                label_busy="Running...",
-                type="danger",
+                class_="btn-danger w-100",
             ),
             sidebar_label("Column"),
             ui.input_radio_buttons(
@@ -57,9 +56,9 @@ def perturbation_ui() -> ui.Tag:
         ui.div(
             {"class": "sidebar-text"},
             ui.p(
-                "Select score and correlation method in the sidebar, then click "
-                "Execute Analysis to compute pairwise correlations across shared "
-                "regulators."
+                "Select score and correlation method in the sidebar. "
+                "Correlations update automatically as selections change; "
+                "click Execute Analysis to force a refresh."
             ),
             ui.p(
                 "The Correlation Matrix tab shows median correlation for each "
@@ -67,12 +66,7 @@ def perturbation_ui() -> ui.Tag:
             ),
             ui.p(
                 "The Pair Distribution tab shows the per-regulator correlation "
-                "distribution for the selected pair. Click a point to select a "
-                "regulator."
-            ),
-            ui.p(
-                "The Gene Scatter tab shows per-target scores for the selected "
-                "regulator. Use the dropdown to change the active regulator."
+                "distribution for the selected pair."
             ),
         ),
         ui.output_ui("hackett_pvalue_warning"),
@@ -87,12 +81,6 @@ def perturbation_ui() -> ui.Tag:
                 ui.output_ui("regulator_selector_box"),
                 ui.output_ui("pair_box_status"),
                 ui.output_ui("pair_box_container"),
-            ),
-            ui.nav_panel(
-                "Gene Scatter",
-                ui.output_ui("regulator_selector_scatter"),
-                ui.output_ui("scatter_status"),
-                ui.output_ui("scatter_container"),
             ),
             id="perturbation_view_tabs",
         ),

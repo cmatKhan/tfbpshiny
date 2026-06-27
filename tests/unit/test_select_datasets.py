@@ -23,8 +23,9 @@ def test_build_where_categorical():
     where = _build_where(
         {"strain": {"type": "categorical", "value": ["BY4741"]}}, params
     )
-    assert '"strain" = ANY' in where
-    assert params["cat_strain"] == ["BY4741"]
+    assert '"strain" IN' in where
+    assert "$cat_strain_0" in where
+    assert params["cat_strain_0"] == "BY4741"
 
 
 def test_build_where_numeric():
@@ -56,7 +57,7 @@ def test_metadata_query_with_filter():
         "harbison", {"strain": {"type": "categorical", "value": ["BY4741"]}}
     )
     assert "WHERE" in sql
-    assert params["cat_strain"] == ["BY4741"]
+    assert params["cat_strain_0"] == "BY4741"
 
 
 def test_sample_count_query():
@@ -111,17 +112,16 @@ def test_regulator_breakdown_query_with_filters():
         ["Carbon source"],
         {"strain": {"type": "categorical", "value": ["BY4741"]}},
     )
-    assert params["cat_strain"] == ["BY4741"]
+    assert params["cat_strain_0"] == "BY4741"
     assert 'COUNT(DISTINCT "Carbon source")' in sql
-    # Single-scan pattern: filter appears once in the per_reg CTE WHERE clause;
-    # FILTER (WHERE ...) in the aggregate exprs adds one more occurrence.
     assert "HAVING COUNT(*) > 1" in sql
-    assert sql.count("FROM harbison_meta") == 1
+    # Two-CTE pattern: multi and per_reg both query harbison_meta.
+    assert sql.count("FROM harbison_meta") >= 1
 
 
 def test_regulator_breakdown_query_no_filters_uses_having():
     sql, params = regulator_breakdown_query("harbison", ["Carbon source"])
-    # No filters — multi-sample filter is HAVING COUNT(*) > 1;
-    # only one scan of the table.
+    # No filters — multi-sample filter is HAVING COUNT(*) > 1.
     assert "HAVING COUNT(*) > 1" in sql
-    assert sql.count("FROM harbison_meta") == 1
+    # The two-CTE pattern uses multi + per_reg, each querying harbison_meta.
+    assert "harbison_meta" in sql

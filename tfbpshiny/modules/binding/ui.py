@@ -13,11 +13,10 @@ def binding_ui() -> ui.Tag:
         ui.sidebar(
             ui.h2("Binding"),
             ui.output_ui("execute_pending_style"),
-            ui.input_task_button(
+            ui.input_action_button(
                 "execute_analysis",
                 "Execute Analysis",
-                label_busy="Running...",
-                type="danger",
+                class_="btn-danger w-100",
             ),
             sidebar_label("Datasets"),
             ui.output_ui("dataset_selection"),
@@ -59,9 +58,9 @@ def binding_ui() -> ui.Tag:
         ui.div(
             {"class": "sidebar-text"},
             ui.p(
-                "Select binding datasets and options in the sidebar, then click "
-                "Execute Analysis to compute pairwise correlations across shared "
-                "regulators."
+                "Select binding datasets and options in the sidebar. "
+                "Correlations update automatically as selections change; "
+                "click Execute Analysis to force a refresh."
             ),
             ui.p(
                 "The Correlation Matrix tab shows median correlation for each "
@@ -69,13 +68,7 @@ def binding_ui() -> ui.Tag:
             ),
             ui.p(
                 "The Pair Distribution tab shows the per-regulator correlation "
-                "distribution for the selected pair. Click a point to select a "
-                "regulator."
-            ),
-            ui.p(
-                "The Gene Scatter tab shows per-target binding scores for the "
-                "selected regulator. Use the dropdown to change the active "
-                "regulator."
+                "distribution for the selected pair."
             ),
         ),
         ui.output_ui("analysis_status"),
@@ -89,12 +82,6 @@ def binding_ui() -> ui.Tag:
                 ui.output_ui("regulator_selector_box"),
                 ui.output_ui("pair_box_status"),
                 ui.output_ui("pair_box_container"),
-            ),
-            ui.nav_panel(
-                "Gene Scatter",
-                ui.output_ui("regulator_selector_scatter"),
-                ui.output_ui("scatter_status"),
-                ui.output_ui("scatter_container"),
             ),
             id="binding_view_tabs",
         ),

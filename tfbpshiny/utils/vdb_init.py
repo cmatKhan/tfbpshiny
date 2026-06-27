@@ -1,15 +1,12 @@
-"""One-time application initialization for VirtualDB and dataset metadata."""
+"""App-level dataset metadata and DuckDB initialization helpers."""
 
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 
+import duckdb
 import pandas as pd
-from labretriever import VirtualDB
-from labretriever.constants import get_cache_dir
-from labretriever.models import MetadataConfig
 
 logger = logging.getLogger("shiny")
 
@@ -128,14 +125,26 @@ DEFAULT_RESPONSIVENESS_PRESETS: dict[str, ResponsivenessPreset] = {
     },
 }
 
+# Inline perturbation dataset columns so vdb_init.py has no import from the
+# perturbation queries module (which would create a circular dependency risk and
+# requires the old VirtualDB import chain).
+_PERTURBATION_DATASET_COLUMNS: dict[str, tuple[str, str]] = {
+    "degron": ("log2FoldChange", "padj"),
+    "hughes_overexpression": ("mean_norm_log2fc", ""),
+    "hughes_knockout": ("mean_norm_log2fc", ""),
+    "kemmeren": ("Madj", "pval"),
+    "hackett": ("log2_shrunken_timecourses", ""),
+    "hu_reimand": ("effect", "pval"),
+}
+
 
 def get_responsiveness_label(preset_name: str, p_db: str) -> str:
     """
     Generate a human-readable threshold description from the preset and column tables.
 
     Derives the label directly from :data:`DEFAULT_RESPONSIVENESS_PRESETS` and the
-    ``DATASET_COLUMNS`` mapping in ``perturbation/queries.py``, so there is a single
-    source of truth for threshold values.
+    ``_PERTURBATION_DATASET_COLUMNS`` mapping, so there is a single source of truth
+    for threshold values.
 
     :param preset_name: Active preset name (key in
         :data:`DEFAULT_RESPONSIVENESS_PRESETS`).
@@ -144,8 +153,6 @@ def get_responsiveness_label(preset_name: str, p_db: str) -> str:
     :rtype: str
 
     """
-    from tfbpshiny.modules.perturbation.queries import DATASET_COLUMNS
-
     preset = DEFAULT_RESPONSIVENESS_PRESETS.get(preset_name)
     if preset is None:
         return ""
@@ -153,9 +160,7 @@ def get_responsiveness_label(preset_name: str, p_db: str) -> str:
     thresholds = preset.get(p_db, preset.get("*", (0.0, 0.05)))
     effect_thresh, pval_thresh = thresholds
 
-    cols = DATASET_COLUMNS.get(
-        p_db, DATASET_COLUMNS.get("*", ("effect", "pvalue", "", ""))
-    )
+    cols = _PERTURBATION_DATASET_COLUMNS.get(p_db, ("effect", "pvalue"))
     effect_col = cols[0] if cols[0] else "effect"
     pval_col = cols[1] if len(cols) > 1 else ""
 
@@ -174,64 +179,14 @@ def get_responsiveness_label(preset_name: str, p_db: str) -> str:
 DEFAULT_RESPONSIVENESS_PRESET: str = "Relaxed"
 
 
-_REGULATOR_DISPLAY_NAME_TABLE = "regulator_display_names"
-
-_BUILD_REGULATOR_DISPLAY_NAMES_SQL = """
-CREATE OR REPLACE TABLE {table} AS
-SELECT
-    regulator_locus_tag,
-    FIRST(regulator_symbol) AS regulator_symbol,
-    CASE
-        WHEN FIRST(regulator_symbol) IS NOT NULL
-             AND FIRST(regulator_symbol) != ''
-             AND FIRST(regulator_symbol) != FIRST(regulator_locus_tag)
-        THEN FIRST(regulator_symbol) || ' (' || regulator_locus_tag || ')'
-        ELSE regulator_locus_tag
-    END AS display_name
-FROM ({union_sql}) __all
-GROUP BY regulator_locus_tag
-ORDER BY regulator_locus_tag
-"""
-
-
-def _build_regulator_display_names(vdb: VirtualDB) -> None:
-    """
-    Build the ``regulator_display_names`` DuckDB table from all dataset meta views.
-
-    Queries each ``{db_name}_meta`` view for distinct ``(regulator_locus_tag,
-    regulator_symbol)`` rows, unions them, and stores the result as a persistent
-    in-memory table.  The ``display_name`` column is ``"SYMBOL (LOCUS_TAG)"`` when a
-    non-empty symbol different from the tag is present; otherwise it equals the tag.
-
-    :param vdb: The application VirtualDB instance.
-
-    """
-    db_names = [
-        db
-        for db in vdb.get_datasets()
-        if "regulator_locus_tag" in vdb.get_fields(f"{db}_meta")
-    ]
-    if not db_names:
-        return
-    union_sql = " UNION ALL ".join(
-        f"SELECT DISTINCT regulator_locus_tag, regulator_symbol FROM {db}_meta"
-        for db in db_names
-    )
-    sql = _BUILD_REGULATOR_DISPLAY_NAMES_SQL.format(
-        table=_REGULATOR_DISPLAY_NAME_TABLE,
-        union_sql=union_sql,
-    )
-    vdb._conn.execute(sql)
-
-
 def get_regulator_display_name(
-    vdb: VirtualDB,
+    conn: duckdb.DuckDBPyConnection,
     locus_tags: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Return a DataFrame of regulator display names from the pre-built lookup table.
 
-    :param vdb: The application VirtualDB instance.
+    :param conn: Open read-only DuckDB connection to the materialized database.
     :param locus_tags: Optional list of locus tags to restrict results. When
         ``None`` all regulators in the table are returned.
     :returns: DataFrame with columns ``regulator_locus_tag``, ``regulator_symbol``,
@@ -240,10 +195,9 @@ def get_regulator_display_name(
 
     """
     if locus_tags is None:
-        return vdb._conn.execute(f"SELECT * FROM {_REGULATOR_DISPLAY_NAME_TABLE}").df()
-    return vdb._conn.execute(
-        f"SELECT * FROM {_REGULATOR_DISPLAY_NAME_TABLE} "
-        f"WHERE regulator_locus_tag = ANY(?)",
+        return conn.execute("SELECT * FROM regulator_display_names").df()
+    return conn.execute(
+        "SELECT * FROM regulator_display_names WHERE regulator_locus_tag = ANY(?)",
         [locus_tags],
     ).df()
 
@@ -253,15 +207,13 @@ class AppDatasets:
     """
     App-level dataset metadata derived at startup.
 
-    Holds the column classification that requires :data:`HIDDEN_FILTER_FIELDS`
-    and cannot be produced by VirtualDB alone.
+    Holds the column classification derived from the ``dataset_column_metadata``
+    table in the materialized DuckDB.
 
     :param condition_cols: Mapping from db_name to list of column names with
-        role ``experimental_condition`` and non-None ``level_definitions``,
-        excluding hidden fields.
-    :param upstream_cols: Mapping from db_name to list of non-condition
-        categorical columns that drive the cascade filter, excluding hidden
-        fields, ``sample_id``, and identifier-role columns.
+        role ``condition``, excluding hidden fields.
+    :param upstream_cols: Mapping from db_name to list of column names with
+        role ``upstream``, excluding hidden fields.
 
     """
 
@@ -269,126 +221,26 @@ class AppDatasets:
     upstream_cols: dict[str, list[str]]
 
 
-def check_local_cache(virtualdb_config: str) -> list[str]:
+def load_app_datasets(conn: duckdb.DuckDBPyConnection) -> AppDatasets:
     """
-    Return a list of repo IDs from the config whose HuggingFace snapshot cache is
-    absent.
+    Load AppDatasets from dataset_column_metadata table in the materialized DuckDB.
 
-    Checks for ``{cache_dir}/datasets--{owner}--{repo}/snapshots/`` with at least one
-    entry. Respects ``HF_CACHE_DIR`` (set via ``--cache-dir`` CLI flag) so that a
-    bundled cache directory is correctly detected. An empty list means all repos are
-    cached and ``local_files_only=True`` is safe to use.
-
-    :param virtualdb_config: Path to the VirtualDB YAML config file.
-    :returns: List of uncached HuggingFace repo IDs (empty when all are cached).
-    :rtype: list[str]
+    :param conn: Open read-only DuckDB connection.
+    :returns: AppDatasets with condition_cols and upstream_cols populated.
 
     """
-    config = MetadataConfig.from_yaml(virtualdb_config)
-    hub_cache = get_cache_dir()
-    missing: list[str] = []
-    for repo_id, repo_cfg in config.repositories.items():
-        if repo_cfg.genome_resources is not None and not repo_cfg.dataset:
-            continue  # genome-resource-only repo — nothing to download from HuggingFace
-        # HF cache path: datasets--{owner}--{repo_name}
-        cache_dir = hub_cache / ("datasets--" + repo_id.replace("/", "--"))
-        snapshots = cache_dir / "snapshots"
-        if not snapshots.exists() or not any(snapshots.iterdir()):
-            missing.append(repo_id)
-    return missing
-
-
-def initialize_data(
-    virtualdb_config: str,
-    hf_token: str | None = None,
-    local_files_only: bool = True,
-    defer_materialize: bool = False,
-) -> tuple[VirtualDB, AppDatasets]:
-    """
-    Construct the VirtualDB, run one-time setup, and compute app-level dataset metadata.
-
-    :param virtualdb_config: Path to the VirtualDB YAML config file.
-    :param hf_token: Optional HuggingFace token for private repo access.
-    :param local_files_only: Passed to ``VirtualDB``; skips HuggingFace network checks
-        and uses only locally cached files. Eliminates 11 sequential ``repo_info`` HTTP
-        round-trips on every startup. Defaults to ``True``; pass ``False`` only when
-        populating the cache for the first time (``tfbpshiny initialize``).
-    :param defer_materialize: When ``True``, skip the expensive
-        ``materialize_comparison_views`` step so the app can become interactive
-        quickly; the caller must run materialization separately (e.g. in a background
-        task) before relying on the in-RAM views. Defaults to ``False``, which
-        materializes synchronously as before.
-    :returns: Tuple of ``(vdb, app_datasets)``.
-    :rtype: tuple[VirtualDB, AppDatasets]
-
-    """
-    _t0 = time.monotonic()
-
-    t = time.monotonic()
-    vdb = VirtualDB(virtualdb_config, token=hf_token, local_files_only=local_files_only)
-    logger.debug(
-        "initialize_data: VirtualDB() completed in %.3fs", time.monotonic() - t
-    )
-
-    t = time.monotonic()
-    _build_regulator_display_names(vdb)
-    logger.debug(
-        "initialize_data: _build_regulator_display_names completed in %.3fs",
-        time.monotonic() - t,
-    )
-
-    t = time.monotonic()
+    df = conn.execute(
+        "SELECT db_name, column_name, role FROM dataset_column_metadata"
+    ).df()
     condition_cols: dict[str, list[str]] = {}
     upstream_cols: dict[str, list[str]] = {}
-    hidden_global = HIDDEN_FILTER_FIELDS.get("*", set())
-
-    for db_name in vdb.get_datasets():
-        db_meta = vdb.get_column_metadata(db_name) or {}
-        hidden = hidden_global | HIDDEN_FILTER_FIELDS.get(db_name, set())
-
-        cond = [
-            col
-            for col, m in db_meta.items()
-            if m.role == "experimental_condition"
-            and m.level_definitions is not None
-            and col not in hidden
-        ]
-        upstream = [
-            col
-            for col, m in db_meta.items()
-            if col not in cond
-            and col not in hidden
-            and col != "sample_id"
-            and m.role not in ("regulator_identifier", "target_identifier")
-            and m.level_definitions is None
-        ]
-        if cond and upstream:
-            condition_cols[db_name] = cond
-            upstream_cols[db_name] = upstream
-    logger.debug(
-        "initialize_data: column metadata classification completed in %.3fs",
-        time.monotonic() - t,
-    )
-
-    # Materialize the analysis data views into RAM so per-query parquet scans
-    # (the dominant Comparison cost, especially on slow disk) hit memory instead.
-    # When deferred, the caller runs this off the critical path (background task) so the
-    # app becomes interactive without waiting on the ~22-48s materialization.
-    if not defer_materialize:
-        # Imported locally to keep the module import graph flat.
-        from tfbpshiny.utils.vdb_materialize import materialize_comparison_views
-
-        t = time.monotonic()
-        materialize_comparison_views(vdb)
-        logger.debug(
-            "initialize_data: materialize_comparison_views completed in %.3fs",
-            time.monotonic() - t,
-        )
-    else:
-        logger.debug("initialize_data: materialize_comparison_views deferred")
-
-    logger.debug("initialize_data: total %.3fs", time.monotonic() - _t0)
-    return vdb, AppDatasets(condition_cols=condition_cols, upstream_cols=upstream_cols)
+    for db_name, grp in df.groupby("db_name"):
+        cond = grp[grp["role"] == "condition"]["column_name"].tolist()
+        up = grp[grp["role"] == "upstream"]["column_name"].tolist()
+        if cond and up:
+            condition_cols[str(db_name)] = cond
+            upstream_cols[str(db_name)] = up
+    return AppDatasets(condition_cols=condition_cols, upstream_cols=upstream_cols)
 
 
 __all__ = [
@@ -402,7 +254,6 @@ __all__ = [
     "DEFAULT_RESPONSIVENESS_PRESET",
     "get_responsiveness_label",
     "AppDatasets",
-    "check_local_cache",
     "get_regulator_display_name",
-    "initialize_data",
+    "load_app_datasets",
 ]

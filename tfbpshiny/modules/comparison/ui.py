@@ -14,11 +14,10 @@ def comparison_ui() -> ui.Tag:
         ui.sidebar(
             ui.h2("Comparisons"),
             ui.output_ui("execute_pending_style"),
-            ui.input_task_button(
+            ui.input_action_button(
                 "execute_analysis",
                 "Execute Analysis",
-                label_busy="Running...",
-                type="danger",
+                class_="btn-danger w-100",
             ),
             sidebar_label("Top N"),
             ui.input_numeric(
